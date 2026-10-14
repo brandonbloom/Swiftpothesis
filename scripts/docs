@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Builds the DocC site into .build/docs, for GitHub Pages or local preview.
+#
+# SWIFTPOTHESIS_DOCS_BASE is the path the site is served under: "Swiftpothesis" for the GitHub Pages
+# project site, which is the default.
+set -euo pipefail
+: "${SWIFTPOTHESIS_HOME:?}"
+cd "$SWIFTPOTHESIS_HOME"
+base="${SWIFTPOTHESIS_DOCS_BASE-Swiftpothesis}"
+out=.build/docs
+symbols=.build/docs-symbols
+rm -rf "$out" "$symbols"
+mkdir -p "$out" "$symbols"
+
+graphs="$(swift package dump-symbol-graph --minimum-access-level public | sed -n 's/^Files written to //p')"
+cp "$graphs"/Swiftpothesis.symbols.json "$symbols/"
+
+xcrun docc convert Sources/Swiftpothesis/Swiftpothesis.docc \
+  --additional-symbol-graph-dir "$symbols" \
+  --output-path "$out" \
+  --warnings-as-errors \
+  --transform-for-static-hosting \
+  ${base:+--hosting-base-path "$base"}
+# The site's root redirects to the module's documentation.
+cat >"$out/index.html" <<EOF
+<!doctype html>
+<meta http-equiv="refresh" content="0; url=${base:+/$base}/documentation/swiftpothesis/">
+EOF

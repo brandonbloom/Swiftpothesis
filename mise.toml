@@ -1,0 +1,30 @@
+[env]
+SWIFTPOTHESIS_HOME = "{{ config_root }}"
+
+[hooks]
+postinstall = "mise run deps"
+
+[tasks.deps]
+description = "Resolve Swift package dependencies"
+run = "swift package resolve"
+
+[tasks.build]
+description = "Build all targets"
+run = "swift build"
+
+[tasks.test]
+description = "Run the test suite"
+run = "swift test"
+
+[tasks.ci]
+description = "Run everything that must pass before a change lands"
+run = "scripts/ci"
+
+[tasks.docs]
+description = "Build the DocC site into .build/docs"
+run = "scripts/docs"
+
+[tasks.docs-preview]
+description = "Build the DocC site and serve it at http://localhost:8000/Swiftpothesis/"
+depends = ["docs"]
+run = "scripts/docs-preview"

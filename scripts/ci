@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Everything that must pass before a change lands. Runs identically locally and in GitHub Actions.
+set -euo pipefail
+: "${SWIFTPOTHESIS_HOME:?}"
+cd "$SWIFTPOTHESIS_HOME"
+# Warnings fail CI: the package's targets read this (see Package.swift).
+export SWIFTPOTHESIS_STRICT=1
+
+# Style: swift-format's defaults with 4-space indentation (.swift-format). `swift format -i -r .`
+# fixes most findings.
+git ls-files -z '*.swift' | xargs -0 swift format lint --strict --parallel
+swift build --build-tests
+swift test --skip-build --quiet
+# The documentation builds without warnings, so its symbol links all resolve.
+scripts/docs
+echo "ci: ok"
