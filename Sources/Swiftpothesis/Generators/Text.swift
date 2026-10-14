@@ -40,15 +40,15 @@ extension Generators {
         ]
 
         public func generate(from source: inout Source) throws(Rejection) -> Unicode.Scalar {
-            switch try source.draw(atMost: 3) {
+            switch try source.choose(atMost: 3) {
             case 0:
                 // Printable ASCII, ordered so that the simplest choice is "0".
-                let offset = try source.draw(atMost: 94)
+                let offset = try source.choose(atMost: 94)
                 return Unicode.Scalar(UInt8(offset < 0x4F ? 0x30 + offset : offset - 0x2F))
             case 1:
-                return Self.special[Int(try source.draw(atMost: UInt64(Self.special.count - 1)))]
+                return Self.special[Int(try source.choose(atMost: UInt64(Self.special.count - 1)))]
             default:
-                let value = try source.draw(atMost: 0x10FFFF)
+                let value = try source.choose(atMost: 0x10FFFF)
                 // Surrogates aren't scalars; map them into the private use area instead.
                 return Unicode.Scalar(UInt32(value)) ?? Unicode.Scalar(
                     0xE000 + UInt32(value & 0x7FF))!

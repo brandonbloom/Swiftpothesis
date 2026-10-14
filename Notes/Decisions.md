@@ -25,3 +25,19 @@ Contributor-facing notes on why Swiftpothesis is built the way it is. User docum
 - Shrink targets on primitives, such as integers that shrink toward a chosen value rather than zero (planned).
 - Per-property generator overrides by key path in derived generators, such as overriding `\.name` in an `@Arbitrary` struct (planned with the derive macro).
 - A modifier that disables shrinking for a sub-generator (planned).
+
+## 2. Choice encoding
+
+**Decision.** One primitive, `Source.choose(atMost:) -> UInt64`, where smaller is simpler. Generators layer on it: integers choose a sign and a distance from their shrink target; booleans choose from `0...1`; arrays choose "continue?" (0 stops) before each element span; `oneOf` and `element(of:)` choose an index; strings choose a scalar class, then a scalar. `Source.draw(_:)` draws a value from another generator.
+
+**Modes.** Generating chooses randomly, biased toward 0, the bound, and small values. Replaying clamps recorded choices to the current bound, and chooses 0 past the end of the recording. More than 8,192 choices in one test case is an overrun, which discards it.
+
+**Alternatives.** Hypothesis records typed choices (integer, float, string, bytes, boolean) with their constraints, which lets its shrinker and database understand each choice. Typed choices can replace `choose(atMost:)` later, chiefly to improve float and string shrinking.
+
+**Naming.** `draw` takes a value from a generator, after Hypothesis's `draw` and rapid's `Draw`. `choose` makes a primitive choice, matching "choice sequence".
+
+**Visibility.** `Source` is public so custom generators can make primitive choices. That ties the encoding to the public API, which is acceptable while everything is alpha.
+
+## Versioning
+
+Swiftpothesis follows [StableVer](https://github.com/brandonbloom/stablever). Until 1.0, every feature is alpha: subject to breaking changes at any time.

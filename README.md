@@ -4,7 +4,7 @@ Property-based testing for Swift: generators, Hypothesis-style integrated shrink
 
 Keywords: property-based testing, generative testing, QuickCheck, Hypothesis, shrinking, model-based testing, Swift Testing.
 
-> **Status: early and private.** The core API is scaffolded for review. Interfaces will change, and there are no releases yet.
+> **Status: alpha.** Swiftpothesis follows [StableVer](https://github.com/brandonbloom/stablever). Until 1.0, every feature is alpha and may change without notice.
 
 **Documentation:** https://brandonbloom.github.io/Swiftpothesis/documentation/swiftpothesis/
 

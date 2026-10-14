@@ -5,7 +5,7 @@
 /// persist a test case as a sequence of choices instead of as a value.
 ///
 /// Most generators draw from a source only through other generators. Custom generators that need
-/// primitive choices call ``draw(atMost:)``, whose result shrinks toward zero, and mark the
+/// primitive choices call ``choose(atMost:)``, whose result shrinks toward zero, and mark the
 /// boundaries of meaningful regions with ``span(_:)`` so the shrinker can delete or reorder them as
 /// units.
 public struct Source: Sendable {
@@ -27,7 +27,7 @@ public struct Source: Sendable {
         self.maxChoices = maxChoices
     }
 
-    /// Draws a primitive choice between zero and `bound`, inclusive.
+    /// Makes a primitive choice between zero and `bound`, inclusive.
     ///
     /// The shrinker simplifies a choice by making it smaller, so encode values so that smaller
     /// choices produce simpler values. For example, ``Generator/integers(in:)`` draws a sign and a
@@ -35,7 +35,7 @@ public struct Source: Sendable {
     /// zero.
     ///
     /// - Throws: ``Rejection/Reason/overrun`` when the test case has drawn too many choices.
-    public mutating func draw(atMost bound: UInt64) throws(Rejection) -> UInt64 {
+    public mutating func choose(atMost bound: UInt64) throws(Rejection) -> UInt64 {
         guard choices.count < maxChoices else { throw Rejection(.overrun) }
         let choice: UInt64
         if choices.count < prefix.count {

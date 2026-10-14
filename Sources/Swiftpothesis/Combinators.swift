@@ -218,7 +218,7 @@ public enum Generators {
         let elements: Elements
 
         public func generate(from source: inout Source) throws(Rejection) -> Elements.Element {
-            let offset = try source.draw(atMost: UInt64(elements.count - 1))
+            let offset = try source.choose(atMost: UInt64(elements.count - 1))
             return elements[elements.index(elements.startIndex, offsetBy: Int(offset))]
         }
     }
@@ -229,7 +229,7 @@ public enum Generators {
 
         public func generate(from source: inout Source) throws(Rejection) -> Value {
             let total = choices.reduce(0) { $0 + $1.weight }
-            var pick = Int(try source.draw(atMost: UInt64(total - 1)))
+            var pick = Int(try source.choose(atMost: UInt64(total - 1)))
             for choice in choices {
                 if pick < choice.weight { return try choice.generator.generate(from: &source) }
                 pick -= choice.weight

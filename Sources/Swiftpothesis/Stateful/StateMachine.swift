@@ -113,7 +113,7 @@ public func check<M: StateMachine>(
         do {
             var count = 0
             while count < steps.upperBound {
-                if count >= steps.lowerBound, try source.draw(atMost: 7) == 0 { break }
+                if count >= steps.lowerBound, try source.choose(atMost: 7) == 0 { break }
                 let command = try source.span { (source) throws(Rejection) in
                     try machine.commands(for: model).generate(from: &source)
                 }

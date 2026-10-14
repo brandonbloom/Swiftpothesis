@@ -52,7 +52,7 @@ extension Generators {
             // element by deleting its span, and shorten the array by zeroing a choice.
             var result: [Element.Value] = []
             while result.count < count.upperBound {
-                if result.count >= count.lowerBound, try source.draw(atMost: 7) == 0 { break }
+                if result.count >= count.lowerBound, try source.choose(atMost: 7) == 0 { break }
                 result.append(
                     try source.span { (source) throws(Rejection) in
                         try element.generate(from: &source)
@@ -67,7 +67,7 @@ extension Generators {
         let wrapped: Wrapped
 
         public func generate(from source: inout Source) throws(Rejection) -> Wrapped.Value? {
-            try source.draw(atMost: 3) == 0 ? nil : try wrapped.generate(from: &source)
+            try source.choose(atMost: 3) == 0 ? nil : try wrapped.generate(from: &source)
         }
     }
 }

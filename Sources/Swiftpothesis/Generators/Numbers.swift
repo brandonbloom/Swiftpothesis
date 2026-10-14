@@ -41,8 +41,9 @@ extension Generators {
                 range.contains(0) ? 0 : (range.lowerBound > 0 ? range.lowerBound : range.upperBound)
             let above = UInt64(truncatingIfNeeded: range.upperBound.magnitudeDistance(from: target))
             let below = UInt64(truncatingIfNeeded: target.magnitudeDistance(from: range.lowerBound))
-            let negative = below > 0 ? (above == 0 ? true : try source.draw(atMost: 1) == 1) : false
-            let distance = try source.draw(atMost: negative ? below : above)
+            let negative =
+                below > 0 ? (above == 0 ? true : try source.choose(atMost: 1) == 1) : false
+            let distance = try source.choose(atMost: negative ? below : above)
             // Wrapping arithmetic is exact here: the distance fits in the range, but not
             // necessarily in `I`, as with `Int8.min`'s distance from zero.
             return negative
@@ -54,7 +55,7 @@ extension Generators {
     /// A generator of Booleans. See ``Generator/booleans()``.
     public struct Booleans: Generator {
         public func generate(from source: inout Source) throws(Rejection) -> Bool {
-            try source.draw(atMost: 1) == 1
+            try source.choose(atMost: 1) == 1
         }
     }
 
@@ -67,12 +68,12 @@ extension Generators {
         public func generate(from source: inout Source) throws(Rejection) -> Double {
             // TODO: Adopt Hypothesis's lexicographic float encoding, so that shrinking prefers
             // integral values, then simple fractions, then everything else.
-            switch try source.draw(atMost: 3) {
+            switch try source.choose(atMost: 3) {
             case 3 where allowNaN: return .nan
             case 2 where allowInfinity:
-                return try source.draw(atMost: 1) == 0 ? .infinity : -.infinity
+                return try source.choose(atMost: 1) == 0 ? .infinity : -.infinity
             case 1:
-                let bits = try source.draw(atMost: .max)
+                let bits = try source.choose(atMost: .max)
                 let value = Double(bitPattern: bits)
                 if value.isFinite, range.contains(value) { return value }
                 fallthrough
