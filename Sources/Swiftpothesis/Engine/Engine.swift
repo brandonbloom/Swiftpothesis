@@ -17,11 +17,18 @@ struct Failure {
     var issues: [Issue]
     var error: (any Error)?
 
-    /// Identifies the bug, so shrinking doesn't slip from one bug to a different one.
-    var signature: String {
-        if let location = issues.first?.sourceLocation { return "issue@\(location)" }
-        if let error { return "error:\(type(of: error))" }
-        return "unknown"
+    /// Where the failure showed itself, for reports: the first issue's source location, or the
+    /// thrown error's type.
+    ///
+    /// Shrinking doesn't require candidates to fail at the same origin. Different origins don't
+    /// prove different bugs, nor the same origin the same bug, and a smaller failing input is the
+    /// more useful report either way. See ``Shrinker``.
+    var origin: String {
+        if let location = issues.first?.sourceLocation {
+            return "\(location.fileName):\(location.line)"
+        }
+        if let error { return "a thrown \(type(of: error))" }
+        return "an unknown location"
     }
 }
 
@@ -49,6 +56,10 @@ struct Driver {
     let seed: UInt64
     private(set) var examples = 0
     private(set) var found: (choices: [UInt64], failure: Failure)?
+    /// The failure first found, before shrinking.
+    private(set) var original: (choices: [UInt64], failure: Failure)?
+    /// Failing examples that shrinking left behind when it moved to a failure at another origin.
+    private(set) var leftBehind: [(choices: [UInt64], failure: Failure)] = []
     private(set) var healthCheck: String?
     private var state: State
 
@@ -97,10 +108,15 @@ struct Driver {
                     return Source(prefix: candidate, random: nil)
                 }
                 found = (shrinker.choices, shrinker.failure)
+                leftBehind = shrinker.leftBehind
                 state = .done
             case .done:
+                // Save examples that may fail differently, too, so a rare bug that shrinking moved
+                // away from fails again on the next run rather than waiting to be rediscovered.
                 if let found {
-                    settings.database?.save(ChoiceSequence(found.choices), for: databaseKey)
+                    for example in [found] + leftBehind {
+                        settings.database?.save(ChoiceSequence(example.choices), for: databaseKey)
+                    }
                 }
                 return nil
             }
@@ -142,6 +158,7 @@ struct Driver {
 
     private mutating func foundFailure(_ choices: [UInt64], _ failure: Failure) {
         found = (choices, failure)
+        original = (choices, failure)
         state =
             settings.phases.contains(.shrink)
             ? .shrink(Shrinker(choices: choices, failure: failure, budget: settings.maxShrinks))
@@ -240,6 +257,11 @@ struct Engine {
             context.description.isEmpty
                 ? "Counterexample:\n\(counterexample)" : "Counterexample: \(counterexample)")
         lines += context.notes.map { "Note: \($0)" }
+        if let original = driver.original, original.failure.origin != found.failure.origin {
+            lines.append(
+                "Shrinking moved from a failure at \(original.failure.origin) to one at \(found.failure.origin). An example of the original failure is saved and replays on the next run."
+            )
+        }
         lines.append("Choices: [\(falsification.choices)]")
         lines.append(
             "Reproduce with SWIFTPOTHESIS_SEED=\(driver.seed), or rerun to replay it from the database."

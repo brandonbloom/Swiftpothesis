@@ -1,4 +1,9 @@
-/// Simplifies a failing test case's choices while it keeps failing the same way.
+/// Simplifies a failing test case's choices while it keeps failing.
+///
+/// Any simpler candidate that fails is adopted, even if it fails at a different origin, because
+/// there's no reliable way to tell whether two failures are the same bug, and a smaller failing
+/// input is the better report. When shrinking moves to a new origin, the example it left behind is
+/// kept in ``leftBehind``, so it can be saved and replayed later.
 ///
 /// Candidates are ordered shortlex: fewer choices are simpler, then lexicographically smaller
 /// ones. The shrinker proposes candidates one at a time with ``nextCandidate()`` and learns each
@@ -10,6 +15,8 @@
 struct Shrinker {
     private(set) var choices: [UInt64]
     private(set) var failure: Failure
+    /// The last example at each origin that shrinking moved away from.
+    private(set) var leftBehind: [(choices: [UInt64], failure: Failure)] = []
     private var budget: Int
     private var pass: Pass = .delete(sizeIndex: 0, start: nil)
     private var improvedThisRound = false
@@ -55,9 +62,12 @@ struct Shrinker {
     mutating func record(_ result: (choices: [UInt64], failure: Failure)?) {
         guard awaitingResult else { return }
         awaitingResult = false
-        if let result, result.failure.signature == failure.signature,
-            isSimpler(result.choices, than: choices)
-        {
+        if let result, isSimpler(result.choices, than: choices) {
+            if result.failure.origin != failure.origin,
+                !leftBehind.contains(where: { $0.failure.origin == failure.origin })
+            {
+                leftBehind.append((choices, failure))
+            }
             (choices, failure) = (result.choices, result.failure)
             improvedThisRound = true
             if case .minimize(let index, let low, _) = pass, index < choices.count {

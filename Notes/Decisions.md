@@ -115,6 +115,16 @@ Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary
 
 **Naming.** `forAll`, after QuickCheck, ScalaCheck, Kotest, and PropEr's `?FORALL`.
 
+## 6. Which failures shrinking accepts
+
+**Decision.** Shrinking adopts any simpler candidate that fails, whatever its reason. The goal is the smallest failing input, not the smallest input for the failure first found.
+
+**Why.** "Same failure" can't be determined reliably. Two failures at one `#expect` can be different bugs, one bug can fail different lines for different inputs, and thrown Swift errors carry no location. A smaller failing input is the more useful report either way. QuickCheck, test.check, fast-check, proptest, Hedgehog, PropEr, and StreamData all shrink this way. Hypothesis instead distinguishes failures by exception type and raise location, using tracebacks, and shrinks each separately.
+
+**Rare bugs.** Shrinking can move from a hard-to-find bug to an easy one, and after the easy one is fixed, random search may not find the rare one again. So when shrinking moves to a failure at a different origin (the first issue's source location, or the thrown error's type), it keeps the last example at the old origin, and the database saves those alongside the shrunk example. The next run replays them first. The summary notes when shrinking moved between origins.
+
+**Later.** Reporting several distinct failures per run, as Hypothesis's `report_multiple_bugs` does, could build on the same bookkeeping.
+
 ## Versioning
 
 Swiftpothesis follows [StableVer](https://github.com/brandonbloom/stablever). Until 1.0, every feature is alpha: subject to breaking changes at any time.
