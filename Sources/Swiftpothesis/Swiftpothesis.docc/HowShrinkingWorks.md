@@ -18,4 +18,4 @@ This approach, called *internal* shrinking, comes from [Hypothesis](https://hypo
 
 - Prefer constructing valid values over filtering. A filter that rejects most candidates also rejects most shrink attempts.
 - In a custom ``Generator``, draw choices so that zero means "simplest", and wrap each meaningful unit in ``Source/span(_:)``.
-- Keep the shrink target in mind when mapping: `.integers(in: 0...9).map { 9 - $0 }` shrinks toward 9.
+- Keep the shrink target in mind when mapping: `Int.arbitrary(in: 0...9).map { 9 - $0 }` shrinks toward 9.

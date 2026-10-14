@@ -7,7 +7,7 @@ import Testing
 ///
 /// ```swift
 /// @Test func reversingTwiceIsIdentity() async {
-///     await forAll(.arrays(of: .integers(in: 0...100))) { array in
+///     await forAll([Int].arbitrary(Int.arbitrary(in: 0...100))) { array in
 ///         #expect(array.reversed().reversed() == array)
 ///     }
 /// }
@@ -73,7 +73,7 @@ public func forAll<each T: Arbitrary>(
 /// ```swift
 /// @Test func deletingAnyCreatedItem() async throws {
 ///     await forAll { test in
-///         let ids = try await store.create(try test.draw(.arrays(of: .strings(), count: 1...10)))
+///         let ids = try await store.create(try test.draw([String].arbitrary(count: 1...10)))
 ///         try await store.delete(try test.draw(.element(of: ids)))
 ///         #expect(try await store.count == ids.count - 1)
 ///     }

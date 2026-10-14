@@ -11,7 +11,7 @@ import Swiftpothesis
 import Testing
 
 @Test func shellQuotingRoundTrips() async throws {
-    await forAll(.strings()) { string in
+    await forAll(String.arbitrary) { string in
         #expect(try runShell("printf %s \(string.shellQuoted)") == string)
     }
 }

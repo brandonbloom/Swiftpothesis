@@ -15,7 +15,7 @@ import Swiftpothesis
 import Testing
 
 @Test func reversingTwiceIsIdentity() async {
-    await forAll(.arrays(of: .integers(in: 0...100))) { array in
+    await forAll { (array: [Int]) in
         #expect(array.reversed().reversed() == array)
     }
 }

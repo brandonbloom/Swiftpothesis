@@ -34,7 +34,7 @@ struct StackMachine: StateMachine {
     func makeSystem() -> LeakyStack { LeakyStack() }
 
     func commands(for model: [Int]) -> some Generator<Command> {
-        .oneOf(.integers(in: 0...9).map(Command.push), .just(.pop))
+        .oneOf(Int.arbitrary(in: 0...9).map(Command.push), .constant(.pop))
     }
 
     func precondition(_ command: Command, model: [Int]) -> Bool {

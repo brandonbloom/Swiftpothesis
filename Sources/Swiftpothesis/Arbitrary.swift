@@ -1,6 +1,7 @@
-/// A type with a default generator.
+/// A type that can generate any of its values.
 ///
-/// Conforming a type to `Arbitrary` lets properties request its values by type alone:
+/// A conforming type's ``arbitrary`` generator produces any value of the type, and lets properties
+/// request values by type alone:
 ///
 /// ```swift
 /// await forAll { (name: String, tags: [String]) in
@@ -8,111 +9,131 @@
 /// }
 /// ```
 ///
-/// A conformance chooses the generator that best represents "any value" of the type. Tests that
-/// need narrower values pass an explicit generator instead.
+/// When "any value" is too broad, a type offers static `arbitrary(…)` methods that narrow it, by
+/// convention taking at least one argument:
+///
+/// ```swift
+/// await forAll(Int.arbitrary(in: 0...9), [String].arbitrary(count: 1...3)) { digit, tags in … }
+/// ```
+///
+/// A narrowed generator produces a subset of the values ``arbitrary`` can, though it may produce
+/// them with different frequencies. It must construct them directly rather than filtering
+/// ``arbitrary``'s values. Conform your own types the same way:
+///
+/// ```swift
+/// extension Person: Arbitrary {
+///     static var arbitrary: some Generator<Person> {
+///         zip(String.arbitrary, Int.arbitrary(in: 0...120)).map(Person.init)
+///     }
+///
+///     static func arbitrary(adultsOnly: Bool) -> some Generator<Person> {
+///         zip(String.arbitrary, Int.arbitrary(in: adultsOnly ? 18...120 : 0...120))
+///             .map(Person.init)
+///     }
+/// }
+/// ```
 ///
 /// TODO: An `@Arbitrary` macro that derives conformances for structs and enums from their
-/// stored properties and cases.
+/// stored properties and cases, with per-property overrides by key path.
 public protocol Arbitrary: Sendable {
-    /// The type of the default generator.
+    /// The type of the generator of any value.
     associatedtype ArbitraryGenerator: Generator<Self>
 
-    /// The default generator for this type.
+    /// A generator of any value of this type.
     static var arbitrary: ArbitraryGenerator { get }
-}
-
-extension Generator {
-    /// The default generator of an ``Arbitrary`` type.
-    public static func arbitrary<T: Arbitrary>(_ type: T.Type = T.self) -> Self
-    where Self == T.ArbitraryGenerator {
-        T.arbitrary
-    }
 }
 
 // MARK: - Standard library conformances
 
 extension Bool: Arbitrary {
-    public static var arbitrary: Generators.Booleans { .booleans() }
+    /// `true` or `false`, shrinking toward `false`.
+    public static var arbitrary: some Generator<Bool> { Generators.Booleans() }
 }
 
 extension Int: Arbitrary {
-    public static var arbitrary: Generators.Integers<Int> { .integers() }
+    /// Any `Int`, shrinking toward zero.
+    public static var arbitrary: some Generator<Int> { arbitrary(in: .min ... .max) }
 }
 
 extension Int8: Arbitrary {
-    public static var arbitrary: Generators.Integers<Int8> { .integers() }
+    /// Any `Int8`, shrinking toward zero.
+    public static var arbitrary: some Generator<Int8> { arbitrary(in: .min ... .max) }
 }
 
 extension Int16: Arbitrary {
-    public static var arbitrary: Generators.Integers<Int16> { .integers() }
+    /// Any `Int16`, shrinking toward zero.
+    public static var arbitrary: some Generator<Int16> { arbitrary(in: .min ... .max) }
 }
 
 extension Int32: Arbitrary {
-    public static var arbitrary: Generators.Integers<Int32> { .integers() }
+    /// Any `Int32`, shrinking toward zero.
+    public static var arbitrary: some Generator<Int32> { arbitrary(in: .min ... .max) }
 }
 
 extension Int64: Arbitrary {
-    public static var arbitrary: Generators.Integers<Int64> { .integers() }
+    /// Any `Int64`, shrinking toward zero.
+    public static var arbitrary: some Generator<Int64> { arbitrary(in: .min ... .max) }
 }
 
 extension UInt: Arbitrary {
-    public static var arbitrary: Generators.Integers<UInt> { .integers() }
+    /// Any `UInt`, shrinking toward zero.
+    public static var arbitrary: some Generator<UInt> { arbitrary(in: .min ... .max) }
 }
 
 extension UInt8: Arbitrary {
-    public static var arbitrary: Generators.Integers<UInt8> { .integers() }
+    /// Any `UInt8`, shrinking toward zero.
+    public static var arbitrary: some Generator<UInt8> { arbitrary(in: .min ... .max) }
 }
 
 extension UInt16: Arbitrary {
-    public static var arbitrary: Generators.Integers<UInt16> { .integers() }
+    /// Any `UInt16`, shrinking toward zero.
+    public static var arbitrary: some Generator<UInt16> { arbitrary(in: .min ... .max) }
 }
 
 extension UInt32: Arbitrary {
-    public static var arbitrary: Generators.Integers<UInt32> { .integers() }
+    /// Any `UInt32`, shrinking toward zero.
+    public static var arbitrary: some Generator<UInt32> { arbitrary(in: .min ... .max) }
 }
 
 extension UInt64: Arbitrary {
-    public static var arbitrary: Generators.Integers<UInt64> { .integers() }
+    /// Any `UInt64`, shrinking toward zero.
+    public static var arbitrary: some Generator<UInt64> { arbitrary(in: .min ... .max) }
 }
 
 extension Double: Arbitrary {
-    public static var arbitrary: Generators.Doubles { .doubles() }
+    /// Any finite `Double`, shrinking toward simple values near zero.
+    public static var arbitrary: some Generator<Double> {
+        arbitrary(allowNaN: false, allowInfinity: false)
+    }
 }
 
 extension Unicode.Scalar: Arbitrary {
-    public static var arbitrary: Generators.UnicodeScalars { .unicodeScalars() }
+    /// Any Unicode scalar, favoring printable ASCII and characters that often break text
+    /// handling, and shrinking toward `"0"`.
+    public static var arbitrary: some Generator<Unicode.Scalar> { Generators.UnicodeScalars() }
 }
 
 extension String: Arbitrary {
-    public static var arbitrary: Generators.Strings { .strings() }
+    /// Strings of up to 50 arbitrary Unicode scalars, shrinking toward shorter, simpler strings.
+    public static var arbitrary: some Generator<String> { arbitrary(count: 0...50) }
 }
 
 extension Optional: Arbitrary where Wrapped: Arbitrary {
-    public static var arbitrary: Generators.Optionals<Wrapped.ArbitraryGenerator> {
-        .optionals(of: Wrapped.arbitrary)
-    }
+    /// `nil` or an arbitrary wrapped value, shrinking toward `nil`.
+    public static var arbitrary: some Generator<Wrapped?> { arbitrary(Wrapped.arbitrary) }
 }
 
 extension Array: Arbitrary where Element: Arbitrary {
-    public static var arbitrary: Generators.Arrays<Element.ArbitraryGenerator> {
-        .arrays(of: Element.arbitrary)
-    }
+    /// Arrays of up to 100 arbitrary elements, shrinking toward fewer, simpler elements.
+    public static var arbitrary: some Generator<[Element]> { arbitrary(count: 0...100) }
 }
 
 extension Set: Arbitrary where Element: Arbitrary {
-    public static var arbitrary: Generators.Map<Generators.Arrays<Element.ArbitraryGenerator>, Set>
-    {
-        .sets(of: Element.arbitrary)
-    }
+    /// Sets of up to 100 arbitrary elements, shrinking toward fewer, simpler elements.
+    public static var arbitrary: some Generator<Set<Element>> { arbitrary(count: 0...100) }
 }
 
 extension Dictionary: Arbitrary where Key: Arbitrary, Value: Arbitrary {
-    public static var arbitrary:
-        Generators.Map<
-            Generators.Arrays<Generators.Zip<Key.ArbitraryGenerator, Value.ArbitraryGenerator>>,
-            Dictionary
-        >
-    {
-        .dictionaries(keys: Key.arbitrary, values: Value.arbitrary)
-    }
+    /// Dictionaries of up to 100 arbitrary entries, shrinking toward fewer, simpler entries.
+    public static var arbitrary: some Generator<[Key: Value]> { arbitrary(count: 0...100) }
 }

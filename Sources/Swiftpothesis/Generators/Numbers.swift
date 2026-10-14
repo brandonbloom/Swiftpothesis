@@ -1,40 +1,30 @@
-extension Generator {
+extension FixedWidthInteger where Self: Sendable {
     /// Integers in a range, shrinking toward zero, or toward the bound nearest zero when the range
     /// excludes it.
-    public static func integers<I: FixedWidthInteger & Sendable>(
-        in range: ClosedRange<I> = I.min...I.max
-    ) -> Self where Self == Generators.Integers<I> {
+    public static func arbitrary(in range: ClosedRange<Self>) -> some Generator<Self> {
         Generators.Integers(range: range)
     }
+}
 
-    /// `true` or `false`, shrinking toward `false`.
-    public static func booleans() -> Self where Self == Generators.Booleans {
-        Generators.Booleans()
+extension Double {
+    /// Values in a range, shrinking toward simple values near zero.
+    public static func arbitrary(in range: ClosedRange<Double>) -> some Generator<Double> {
+        Generators.Doubles(range: range, allowNaN: false, allowInfinity: false)
     }
 
-    /// Floating-point numbers in a range, shrinking toward simple values near zero.
-    ///
-    /// - Parameters:
-    ///   - range: The values to produce. Defaults to all finite values.
-    ///   - allowNaN: Whether to produce NaN.
-    ///   - allowInfinity: Whether to produce the infinities.
-    public static func doubles(
-        in range: ClosedRange<Double> = -Double
-            .greatestFiniteMagnitude...Double
-            .greatestFiniteMagnitude,
-        allowNaN: Bool = false,
-        allowInfinity: Bool = false
-    ) -> Self where Self == Generators.Doubles {
-        Generators.Doubles(range: range, allowNaN: allowNaN, allowInfinity: allowInfinity)
+    /// Any `Double`, optionally including NaN and the infinities.
+    public static func arbitrary(allowNaN: Bool, allowInfinity: Bool) -> some Generator<Double> {
+        Generators.Doubles(
+            range: -.greatestFiniteMagnitude ... .greatestFiniteMagnitude, allowNaN: allowNaN,
+            allowInfinity: allowInfinity)
     }
 }
 
 extension Generators {
-    /// A generator of integers in a range. See ``Generator/integers(in:)``.
-    public struct Integers<I: FixedWidthInteger & Sendable>: Generator {
+    struct Integers<I: FixedWidthInteger & Sendable>: Generator {
         let range: ClosedRange<I>
 
-        public func generate(from source: inout Source) throws(Rejection) -> I {
+        func generate(from source: inout Source) throws(Rejection) -> I {
             // Draw a distance from the shrink target, and which side of it to go, so that smaller
             // choices give values nearer zero.
             let target: I =
@@ -52,20 +42,18 @@ extension Generators {
         }
     }
 
-    /// A generator of Booleans. See ``Generator/booleans()``.
-    public struct Booleans: Generator {
-        public func generate(from source: inout Source) throws(Rejection) -> Bool {
+    struct Booleans: Generator {
+        func generate(from source: inout Source) throws(Rejection) -> Bool {
             try source.choose(atMost: 1) == 1
         }
     }
 
-    /// A generator of `Double` values. See ``Generator/doubles(in:allowNaN:allowInfinity:)``.
-    public struct Doubles: Generator {
+    struct Doubles: Generator {
         let range: ClosedRange<Double>
         let allowNaN: Bool
         let allowInfinity: Bool
 
-        public func generate(from source: inout Source) throws(Rejection) -> Double {
+        func generate(from source: inout Source) throws(Rejection) -> Double {
             // TODO: Adopt Hypothesis's lexicographic float encoding, so that shrinking prefers
             // integral values, then simple fractions, then everything else.
             switch try source.choose(atMost: 3) {

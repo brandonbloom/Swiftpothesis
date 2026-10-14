@@ -40,8 +40,9 @@ extension Generator {
 
 extension Generator {
     /// A generator that always produces `value`.
-    public static func just<T: Sendable>(_ value: T) -> Self where Self == Generators.Just<T> {
-        Generators.Just(value: value)
+    public static func constant<T: Sendable>(_ value: T) -> Self
+    where Self == Generators.Constant<T> {
+        Generators.Constant(value: value)
     }
 
     /// Chooses one of `elements`, shrinking toward the first.
@@ -98,8 +99,9 @@ extension Generator {
         ])
     }
 
-    /// Draws from one of `generators`, chosen in proportion to their weights.
-    public static func frequency<V>(_ choices: (weight: Int, generator: AnyGenerator<V>)...)
+    /// Draws from one of `generators`, chosen in proportion to their weights, and shrinking
+    /// toward the first.
+    public static func weighted<V>(_ choices: (weight: Int, generator: AnyGenerator<V>)...)
         -> Self where Self == Generators.OneOf<V>
     {
         Generators.OneOf(choices: choices.map { ($0.weight, $0.generator) })
@@ -109,7 +111,7 @@ extension Generator {
 /// Combines generators into one that produces tuples of their values.
 ///
 /// ```swift
-/// zip(.integers(in: 0...9), .strings(), .booleans())
+/// zip(Int.arbitrary(in: 0...9), String.arbitrary, Bool.arbitrary)
 /// ```
 public func zip<each G: Generator>(_ generators: repeat each G) -> Generators.Zip<repeat each G> {
     Generators.Zip(generators: (repeat each generators))
@@ -119,7 +121,7 @@ extension Generators.Zip {
     /// Transforms each tuple of generated values, passing its elements as separate arguments.
     ///
     /// ```swift
-    /// zip(.integers(in: 0...9), .strings()).map(Item.init(count:name:))
+    /// zip(Int.arbitrary(in: 0...9), String.arbitrary).map(Item.init(count:name:))
     /// ```
     public func map<T>(
         _ transform: @escaping @Sendable (repeat (each G).Value) -> T
@@ -141,7 +143,7 @@ extension Generator {
     ///
     /// ```swift
     /// indirect enum Tree { case leaf(Int), node(Tree, Tree) }
-    /// let trees: AnyGenerator<Tree> = .recursive(base: .integers(in: 0...9).map(Tree.leaf)) {
+    /// let trees: AnyGenerator<Tree> = .recursive(base: Int.arbitrary(in: 0...9).map(Tree.leaf)) {
     ///     subtree in zip(subtree, subtree).map(Tree.node)
     /// }
     /// ```
@@ -206,8 +208,8 @@ public enum Generators {
         }
     }
 
-    /// A generator that always produces the same value. See ``Generator/just(_:)``.
-    public struct Just<Value: Sendable>: Generator {
+    /// A generator that always produces the same value. See ``Generator/constant(_:)``.
+    public struct Constant<Value: Sendable>: Generator {
         let value: Value
 
         public func generate(from source: inout Source) throws(Rejection) -> Value { value }

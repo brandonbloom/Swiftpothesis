@@ -30,7 +30,7 @@ public struct Source: Sendable {
     /// Makes a primitive choice between zero and `bound`, inclusive.
     ///
     /// The shrinker simplifies a choice by making it smaller, so encode values so that smaller
-    /// choices produce simpler values. For example, ``Generator/integers(in:)`` draws a sign and a
+    /// choices produce simpler values. For example, `Int.arbitrary(in:)` draws a sign and a
     /// magnitude rather than an offset from the range's lower bound, so integers shrink toward
     /// zero.
     ///

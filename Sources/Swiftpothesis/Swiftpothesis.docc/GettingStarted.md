@@ -26,7 +26,7 @@ import Swiftpothesis
 import Testing
 
 @Test func sortingIsIdempotent() async {
-    await forAll(.arrays(of: .integers(in: -100...100))) { array in
+    await forAll([Int].arbitrary(Int.arbitrary(in: -100...100))) { array in
         #expect(array.sorted().sorted() == array.sorted())
     }
 }
@@ -48,7 +48,7 @@ Suppose a property is wrong:
 
 ```swift
 @Test func everyArrayIsShort() async {
-    await forAll(.arrays(of: .integers(in: 0...1000))) { array in
+    await forAll([Int].arbitrary(Int.arbitrary(in: 0...1000))) { array in
         #expect(array.allSatisfy { $0 < 50 })
     }
 }
@@ -67,6 +67,6 @@ Issues recorded while searching and shrinking are held back, so a failure reads 
 
 ## Next steps
 
-- Build generators for your own types from the members of ``Generator``, such as ``Generator/arrays(of:count:)`` and ``Generator/map(_:)``.
+- Generate your own types by conforming them to ``Arbitrary``, composing generators with ``zip(_:)`` and ``Generator/map(_:)``.
 - Test a system with a model of it: <doc:StatefulTesting>.
 - Understand how failures are reproduced: <doc:ReproducingFailures>.

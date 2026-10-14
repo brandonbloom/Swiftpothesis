@@ -8,7 +8,7 @@ import Synchronization
 ///
 /// ```swift
 /// await forAll { test in
-///     let ids = try await server.create(try test.draw(.arrays(of: .strings())))
+///     let ids = try await server.create(try test.draw([String].arbitrary))
 ///     let victim = try test.draw(.element(of: ids))
 ///     …
 /// }

@@ -38,6 +38,23 @@ Contributor-facing notes on why Swiftpothesis is built the way it is. User docum
 
 **Visibility.** `Source` is public so custom generators can make primitive choices. That ties the encoding to the public API, which is acceptable while everything is alpha.
 
+## 3. The `Generator` protocol
+
+**Decision.**
+
+```swift
+public protocol Generator<Value>: Sendable {
+    associatedtype Value: Sendable
+    func generate(from source: inout Source) throws(Rejection) -> Value
+}
+```
+
+- **A protocol, not a closure-wrapping `Gen<Value>` struct** (swift-gen, PropertyBased, SwiftCheck). Generators have concrete types the compiler can specialize. Type-owned constructors return them opaquely (`some Generator<T>`); leading-dot combinators must name theirs, so those types are public in the `Generators` namespace. `AnyGenerator` erases when needed.
+- **Generators are `Sendable`**, so they can live in `static let`s and traits. Closures passed to combinators must be `@Sendable`.
+- **Values are `Sendable`.** Generated values should be pure values; `Sendable` is the floor the compiler can check. It lets properties hand inputs to tasks and actors, and leaves room for running test cases in parallel. To test a non-`Sendable` type, generate a `Sendable` description of it and construct the instance inside the property. `Arbitrary` refines `Sendable` accordingly.
+- **`inout Source`.** Generation is one sequential pass with no shrink tree, and `inout` makes that ownership explicit without a reference type.
+- **Typed `throws(Rejection)`.** The only way generation fails is by discarding the test case.
+
 **Naming.** "Generator" has its property-based-testing meaning (QuickCheck, test.check, Kotest, rapid): a recipe for one value. It conflicts with the iterator meaning in Python, JavaScript, and pre-Swift-3 `GeneratorType`; the protocol's docstring says so. `Strategy` (Hypothesis, proptest) was the main alternative.
 
 ## 3a. `TestCase`: drawing while a property runs
@@ -54,23 +71,30 @@ Contributor-facing notes on why Swiftpothesis is built the way it is. User docum
 
 **Naming.** `TestCase` follows Hegel and doesn't collide with Swift Testing's nested `Test.Case`. Alternatives considered: `Draws`, `Trial`, `Example`.
 
+## 4. How generators are spelled
+
+**Decision.** Generators for a type's values are static members of that type:
+
+- `T.arbitrary`, the `Arbitrary` requirement, generates any value. It's a property: a pure description with no side effects.
+- `T.arbitrary(…)` methods narrow it, such as `Int.arbitrary(in: 0...9)` or `[Int].arbitrary(count: 1...5)`. Each takes at least one argument, so `T.arbitrary()` never duplicates `T.arbitrary`. A narrowed generator produces a subset of `T.arbitrary`'s values, possibly with different frequencies, and constructs them directly rather than filtering.
+- A single obvious generator argument is unlabeled, as in `[Int].arbitrary(Int.arbitrary(in: 0...9))` and `Int?.arbitrary(…)`. Dictionaries label `keys:` and `values:`.
+- Methods return opaque types (`some Generator<T>`), so concrete generator types for values are internal.
+- Combinators not owned by a value type are leading-dot static members of `Generator`: `.oneOf`, `.weighted`, `.constant`, `.element(of:)`, `.recursive`; plus the free function `zip`.
+
+Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary(…)` methods for narrower values, usually built with `zip(…).map(…)`.
+
+**Precedent.** `Int.random(in:)` and `Bool.random()` in the standard library.
+
+**Alternatives.**
+- Leading-dot members for everything (`.integers(in:)`, `.arrays(of:)`): short, but one flat namespace shared by every module, which scales poorly to custom and domain types, and unusable without type context.
+- A `Gen` namespace: just as flat.
+- Nested generator types (`Int.Values(in:)`): one spelling, but adds a nested type to every conforming type, requires type erasure in collections, and makes custom types write a struct.
+- `.arb`: shorter, but an abbreviation. Offering both `arb` and `arbitrary` was rejected outright.
+
+**Naming.** `.constant(_:)` replaces QuickCheck's jargon `just`, after SwiftUI's `Binding.constant`. `.weighted` replaces `frequency`.
+
+**Cost.** Nested generators are verbose, such as `[[Int]].arbitrary([Int].arbitrary(Int.arbitrary(in: 0...9)))`. They're needed only when "any value" doesn't fit.
+
 ## Versioning
 
 Swiftpothesis follows [StableVer](https://github.com/brandonbloom/stablever). Until 1.0, every feature is alpha: subject to breaking changes at any time.
-
-## 3. The `Generator` protocol
-
-**Decision.**
-
-```swift
-public protocol Generator<Value>: Sendable {
-    associatedtype Value: Sendable
-    func generate(from source: inout Source) throws(Rejection) -> Value
-}
-```
-
-- **A protocol, not a closure-wrapping `Gen<Value>` struct** (swift-gen, PropertyBased, SwiftCheck). Combinators return concrete types in the `Generators` namespace, which the compiler can specialize; users write `some Generator<T>`, and `AnyGenerator` erases when needed. Cost: concrete types leak into spelled-out signatures, notably `Arbitrary` conformances.
-- **Generators are `Sendable`**, so they can live in `static let`s and traits. Closures passed to combinators must be `@Sendable`.
-- **Values are `Sendable`.** Generated values should be pure values; `Sendable` is the floor the compiler can check. It lets properties hand inputs to tasks and actors, and leaves room for running test cases in parallel. To test a non-`Sendable` type, generate a `Sendable` description of it and construct the instance inside the property. `Arbitrary` refines `Sendable` accordingly.
-- **`inout Source`.** Generation is one sequential pass with no shrink tree, and `inout` makes that ownership explicit without a reference type.
-- **Typed `throws(Rejection)`.** The only way generation fails is by discarding the test case.

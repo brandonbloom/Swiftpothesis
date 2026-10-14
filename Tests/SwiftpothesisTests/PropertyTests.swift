@@ -6,7 +6,7 @@ import Testing
 @Suite(.propertySettings { $0.database = nil })
 struct PropertyTests {
     @Test func passingPropertyRecordsNoIssues() async {
-        await forAll(.integers(in: 0...100)) { x in
+        await forAll(Int.arbitrary(in: 0...100)) { x in
             #expect(x >= 0 && x <= 100)
         }
     }
@@ -20,7 +20,7 @@ struct PropertyTests {
 
     @Test func integerShrinksToBoundary() async {
         let issues = await failures {
-            await forAll(.integers(in: 0...1_000_000)) { x in
+            await forAll(Int.arbitrary(in: 0...1_000_000)) { x in
                 #expect(x < 1234)
             }
         }
@@ -30,7 +30,7 @@ struct PropertyTests {
 
     @Test func negativeIntegersShrinkTowardZero() async {
         let issues = await failures {
-            await forAll(.integers(in: -1000...1000)) { x in
+            await forAll(Int.arbitrary(in: -1000...1000)) { x in
                 #expect(x > -17)
             }
         }
@@ -39,7 +39,7 @@ struct PropertyTests {
 
     @Test func arrayShrinksToSingleMinimalElement() async {
         let issues = await failures {
-            await forAll(.arrays(of: .integers(in: 0...1000))) { array in
+            await forAll([Int].arbitrary(Int.arbitrary(in: 0...1000))) { array in
                 #expect(array.allSatisfy { $0 < 50 })
             }
         }
@@ -49,8 +49,8 @@ struct PropertyTests {
     @Test func shrinkingSurvivesFlatMap() async {
         // An array, then an index into it: dependent generation that integrated shrinking
         // handles poorly.
-        let generator = Generators.Arrays(element: .integers(in: 0...100), count: 1...20).flatMap {
-            array in zip(.just(array), .integers(in: 0...(array.count - 1)))
+        let generator = [Int].arbitrary(Int.arbitrary(in: 0...100), count: 1...20).flatMap {
+            array in zip(.constant(array), Int.arbitrary(in: 0...(array.count - 1)))
         }
         let issues = await failures {
             await forAll(generator) { pair in
@@ -63,7 +63,7 @@ struct PropertyTests {
     @Test func thrownErrorsFail() async {
         struct Boom: Error {}
         let issues = await failures {
-            await forAll(.integers(in: 0...100)) { x in
+            await forAll(Int.arbitrary(in: 0...100)) { x in
                 if x > 3 { throw Boom() }
             }
         }
@@ -71,7 +71,7 @@ struct PropertyTests {
     }
 
     @Test func assumptionsDiscard() async {
-        await forAll(.integers(in: 0...100)) { x in
+        await forAll(Int.arbitrary(in: 0...100)) { x in
             try assume(x % 2 == 0)
             #expect(x % 2 == 0)
         }
@@ -79,7 +79,7 @@ struct PropertyTests {
 
     @Test func notesAppearInReport() async {
         let issues = await failures {
-            await forAll(.integers(in: 0...100)) { x in
+            await forAll(Int.arbitrary(in: 0...100)) { x in
                 note("doubled: \(x * 2)")
                 #expect(x < 5)
             }
@@ -94,7 +94,9 @@ struct PropertyTests {
         // Failures are saved per call site, so both runs share one.
         func check(_ settings: Settings) async -> [String] {
             await failures {
-                await forAll(.integers(in: 0...1000), settings: settings) { x in #expect(x < 500) }
+                await forAll(Int.arbitrary(in: 0...1000), settings: settings) { x in
+                    #expect(x < 500)
+                }
             }
         }
         _ = await check(settings)
@@ -109,16 +111,16 @@ struct PropertyTests {
         settings.seed = 42
         settings.phases = [.generate]
         let first = await failures {
-            await forAll(.integers(in: 0...1000), settings: settings) { x in #expect(x < 900) }
+            await forAll(Int.arbitrary(in: 0...1000), settings: settings) { x in #expect(x < 900) }
         }
         let second = await failures {
-            await forAll(.integers(in: 0...1000), settings: settings) { x in #expect(x < 900) }
+            await forAll(Int.arbitrary(in: 0...1000), settings: settings) { x in #expect(x < 900) }
         }
         #expect(first == second)
     }
 
     @MainActor @Test func runsOnCallersActor() async {
-        await forAll(.booleans()) { _ in
+        await forAll(Bool.arbitrary) { _ in
             MainActor.assertIsolated()
         }
     }
@@ -141,8 +143,9 @@ struct TestCaseTests {
     @Test func drawsDependOnEarlierResults() async {
         let issues = await failures {
             await forAll { test in
-                let array = try test.draw(.arrays(of: .integers(in: 0...100), count: 1...20))
-                let index = try test.draw(.integers(in: 0...(array.count - 1)))
+                let array = try test.draw(
+                    [Int].arbitrary(Int.arbitrary(in: 0...100), count: 1...20))
+                let index = try test.draw(Int.arbitrary(in: 0...(array.count - 1)))
                 #expect(array[index] < 10)
             }
         }
@@ -152,7 +155,7 @@ struct TestCaseTests {
     @Test func streamsDrawOnDemand() async {
         let issues = await failures {
             await forAll { test in
-                let total = test.stream(of: .integers(in: 0...10)).prefix(5).reduce(0, +)
+                let total = test.stream(of: Int.arbitrary(in: 0...10)).prefix(5).reduce(0, +)
                 #expect(total < 20)
             }
         }

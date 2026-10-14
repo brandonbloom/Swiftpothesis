@@ -11,14 +11,15 @@
 /// ``map(_:)``, ``filter(maxAttempts:_:)``, and ``flatMap(_:)``, and a shrunk value always satisfies the
 /// generator's own constraints.
 ///
-/// Build generators from the static members on this protocol, such as
-/// ``Generator/integers(in:)`` and ``Generator/arrays(of:count:)``, or from a type's
-/// ``Arbitrary/arbitrary`` generator. Static members on a protocol are spelled with a leading dot
-/// where a generator is expected:
+/// Generators for a type's values come from the type: ``Arbitrary/arbitrary`` for any value, and
+/// static `arbitrary(…)` methods for narrower ones. Generators that combine others, such as
+/// ``Generator/oneOf(_:_:)`` and ``Generator/constant(_:)``, are static members of this protocol,
+/// spelled with a leading dot where a generator is expected:
 ///
 /// ```swift
-/// let pairs = zip(.integers(in: 0...9), .strings())
-/// let nonEmpty: some Generator<[Bool]> = .arrays(of: .booleans()).filter { !$0.isEmpty }
+/// let digits = Int.arbitrary(in: 0...9)
+/// let pairs = zip(digits, String.arbitrary)
+/// let sentinel: some Generator<Int> = .oneOf(digits, .constant(-1))
 /// ```
 ///
 /// To write a generator that the combinators can't express, conform a type to this protocol and
