@@ -38,6 +38,22 @@ Contributor-facing notes on why Swiftpothesis is built the way it is. User docum
 
 **Visibility.** `Source` is public so custom generators can make primitive choices. That ties the encoding to the public API, which is acceptable while everything is alpha.
 
+**Naming.** "Generator" has its property-based-testing meaning (QuickCheck, test.check, Kotest, rapid): a recipe for one value. It conflicts with the iterator meaning in Python, JavaScript, and pre-Swift-3 `GeneratorType`; the protocol's docstring says so. `Strategy` (Hypothesis, proptest) was the main alternative.
+
+## 3a. `TestCase`: drawing while a property runs
+
+**Decision.** The primitive process is the running test case, not a generator. `TestCase` is a public, `Sendable` handle to a test case's choices: `draw(_:)` a value from a generator, `choose(atMost:)` a primitive choice, or `stream(of:)` an endless sequence of values drawn on demand. `forAll { test in … }` exposes it to properties.
+
+**Layers.** Choices (`Source.choose`) → `Source` (one test case's recorded stream) → `TestCase` (the live, lockable handle) → the engine's test function. `Generator` stays a pure function of a `Source`. `forAll(generators…)` draws everything up front, `check(StateMachine)` alternates drawing and running, and `Scheduler` and streams are objects that hold a `TestCase` and choose later. All of these are defined on the `TestCase` layer.
+
+**Why.** Generators finish before the property runs, so they can't express choices that depend on the system's results, lazy inputs, or schedule orders. Hypothesis (`st.data()`), rapid (`t.Draw`), and fast-check (`fc.gen()`) have the same escape hatch.
+
+**Lifetime.** A `TestCase` is valid only while its property runs. The engine closes it afterward, and later use is a precondition failure rather than silently drawing into another test case.
+
+**Reporting.** Each `TestCase.draw` is a span and is listed in failure reports in order ("Draw 1: …").
+
+**Naming.** `TestCase` follows Hegel and doesn't collide with Swift Testing's nested `Test.Case`. Alternatives considered: `Draws`, `Trial`, `Example`.
+
 ## Versioning
 
 Swiftpothesis follows [StableVer](https://github.com/brandonbloom/stablever). Until 1.0, every feature is alpha: subject to breaking changes at any time.

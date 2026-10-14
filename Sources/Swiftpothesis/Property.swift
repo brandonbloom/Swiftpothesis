@@ -65,6 +65,34 @@ public func forAll<each T: Arbitrary>(
     }
 }
 
+/// Tests that a property holds, drawing values while it runs.
+///
+/// Use this form when the values to test depend on what the code under test does. Each value
+/// drawn from `test` is shown in the failure report, in order.
+///
+/// ```swift
+/// @Test func deletingAnyCreatedItem() async throws {
+///     await forAll { test in
+///         let ids = try await store.create(try test.draw(.arrays(of: .strings(), count: 1...10)))
+///         try await store.delete(try test.draw(.element(of: ids)))
+///         #expect(try await store.count == ids.count - 1)
+///     }
+/// }
+/// ```
+///
+/// See ``forAll(_:settings:sourceLocation:isolation:_:)`` for details.
+public func forAll(
+    settings: Settings = .current,
+    sourceLocation: SourceLocation = #_sourceLocation,
+    isolation: isolated (any Actor)? = #isolation,
+    _ property: (TestCase) async throws -> Void
+) async {
+    await Engine(settings: settings, sourceLocation: sourceLocation).run(isolation: isolation) {
+        testCase, _ in
+        try await property(testCase)
+    }
+}
+
 /// Discards the current test case unless a condition holds.
 ///
 /// Use assumptions for preconditions that are hard to build into generators. Discarded test
@@ -111,8 +139,8 @@ private func check<G: Generator>(
     _ property: (G.Value) async throws -> Void
 ) async {
     await Engine(settings: settings, sourceLocation: sourceLocation).run(isolation: isolation) {
-        source, context in
-        let value = try generator.generate(from: &source)
+        testCase, context in
+        let value = try testCase.draw(generator)
         context.description = String(reflecting: value)
         try await property(value)
     }

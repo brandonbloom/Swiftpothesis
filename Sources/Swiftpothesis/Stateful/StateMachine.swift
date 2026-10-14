@@ -106,17 +106,15 @@ public func check<M: StateMachine>(
     isolation: isolated (any Actor)? = #isolation
 ) async {
     await Engine(settings: settings, sourceLocation: sourceLocation).run(isolation: isolation) {
-        source, context in
+        testCase, context in
         var model = machine.initialModel
         var system = try await machine.makeSystem()
         var log: [String] = []
         do {
             var count = 0
             while count < steps.upperBound {
-                if count >= steps.lowerBound, try source.choose(atMost: 7) == 0 { break }
-                let command = try source.span { (source) throws(Rejection) in
-                    try machine.commands(for: model).generate(from: &source)
-                }
+                if count >= steps.lowerBound, try testCase.choose(atMost: 7) == 0 { break }
+                let command = try testCase.draw(machine.commands(for: model))
                 guard machine.precondition(command, model: model) else { continue }
                 count += 1
                 log.append("\(count). \(command)")

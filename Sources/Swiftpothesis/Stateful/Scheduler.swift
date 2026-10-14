@@ -8,7 +8,8 @@
 /// they were scheduled.
 ///
 /// ```swift
-/// await forAll(.scheduler()) { scheduler in
+/// await forAll { test in
+///     let scheduler = Scheduler(test)
 ///     let pool = SimulatorPool(boot: { id in await scheduler.schedule("boot \(id)") { … } })
 ///     async let results = pool.run(jobs)
 ///     await scheduler.releaseAll()
@@ -22,7 +23,12 @@
 /// scheduling point because it can drain the microtask queue; Swift concurrency has no equivalent,
 /// so ``releaseAll()`` needs another way to detect quiescence, such as a custom task executor.
 public final class Scheduler: Sendable {
-    init() {}
+    let testCase: TestCase
+
+    /// Creates a scheduler that chooses release orders from a running test case.
+    public init(_ testCase: TestCase) {
+        self.testCase = testCase
+    }
 
     /// Runs `operation` once the scheduler releases it, and returns its result.
     public func schedule<T: Sendable>(
@@ -39,21 +45,5 @@ public final class Scheduler: Sendable {
     /// The labels of released operations, in release order, for failure reports.
     public var history: [String] {
         fatalError("Scheduler is not implemented yet")
-    }
-}
-
-extension Generator {
-    /// A ``Scheduler`` that orders concurrent operations by drawing from the test case.
-    public static func scheduler() -> Self where Self == Generators.Schedulers {
-        Generators.Schedulers()
-    }
-}
-
-extension Generators {
-    /// A generator of schedulers. See ``Generator/scheduler()``.
-    public struct Schedulers: Generator {
-        public func generate(from source: inout Source) throws(Rejection) -> Scheduler {
-            Scheduler()
-        }
     }
 }

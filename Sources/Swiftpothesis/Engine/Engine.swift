@@ -1,9 +1,9 @@
 import Synchronization
 import Testing
 
-/// Runs one test case: draws values from the source, describes them in the context, and checks
-/// the property. Stateful tests interleave drawing and checking.
-typealias TestFunction = (inout Source, PropertyContext) async throws -> Void
+/// Runs one test case: draws values from it, describes them in the context, and checks the
+/// property. Drawing and checking may interleave.
+typealias TestFunction = (TestCase, PropertyContext) async throws -> Void
 
 /// The result of running one test case.
 enum Outcome {
@@ -31,6 +31,8 @@ struct Failure {
 final class PropertyContext: @unchecked Sendable {
     /// The generated values, as shown in a failure report.
     var description = ""
+    /// Every value drawn from the test case, in order.
+    var draws: [String] = []
     var notes: [String] = []
     var labels: Set<String> = []
     var targets: [String: Double] = [:]
@@ -118,13 +120,13 @@ struct Engine {
         _ source: inout Source, _ test: TestFunction, isolation: isolated (any Actor)?
     ) async -> Outcome {
         let context = PropertyContext()
-        var drawn = source
+        let testCase = TestCase(source)
         let captured = await withIssuesCaptured(isolation: isolation) {
             try await PropertyContext.$current.withValue(context) {
-                try await test(&drawn, context)
+                try await test(testCase, context)
             }
         }
-        source = drawn
+        source = testCase.close()
         if let rejection = captured.error as? Rejection { return .discarded(rejection) }
         if captured.issues.isEmpty, captured.error == nil { return .passed }
         return .failed(
@@ -138,11 +140,12 @@ struct Engine {
         _ choices: [UInt64], _ failure: Failure, seed: UInt64, examples: Int,
         _ test: TestFunction, isolation: isolated (any Actor)?
     ) async {
-        var source = Source(prefix: choices, random: nil)
+        let testCase = TestCase(Source(prefix: choices, random: nil))
+        defer { _ = testCase.close() }
         let context = PropertyContext()
         do {
             try await PropertyContext.$current.withValue(context) {
-                try await test(&source, context)
+                try await test(testCase, context)
             }
         } catch is Rejection {
             Issue.record(
@@ -155,6 +158,10 @@ struct Engine {
             "Property falsified after \(examples + 1) examples.",
             "Counterexample: \(context.description)",
         ]
+        if context.description.isEmpty {
+            lines[1] = "Counterexample:"
+            lines += context.draws.enumerated().map { "Draw \($0.offset + 1): \($0.element)" }
+        }
         lines += context.notes.map { "Note: \($0)" }
         lines.append("Choices: [\(ChoiceSequence(choices))]")
         lines.append(

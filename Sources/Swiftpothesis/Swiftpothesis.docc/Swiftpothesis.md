@@ -27,9 +27,14 @@ Swiftpothesis shrinks the way [Hypothesis](https://hypothesis.readthedocs.io) do
 
 - <doc:GettingStarted>
 - ``forAll(_:settings:sourceLocation:isolation:_:)``
-- ``forAll(settings:sourceLocation:isolation:_:)``
+- ``forAll(settings:sourceLocation:isolation:_:)-(_,_,_,(T)->Void)``
+- ``forAll(settings:sourceLocation:isolation:_:)-(_,_,_,(TestCase)->Void)``
 - ``assume(_:_:)``
 - ``note(_:)``
+
+### Drawing While a Property Runs
+
+- ``TestCase``
 
 ### Generators
 

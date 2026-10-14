@@ -1,5 +1,10 @@
 /// A description of how to produce values of some type from a ``Source`` of choices.
 ///
+/// "Generator" here has its property-based-testing meaning, as in QuickCheck and Hypothesis: a
+/// recipe that produces one value each time it runs. It isn't an iterator, as generators are in
+/// Python and JavaScript and as `GeneratorType` was before Swift 3. To produce values one after
+/// another while a property runs, use a ``TestCase``.
+///
 /// A generator is a pure function of the choices it draws. The engine produces new test cases by
 /// drawing choices at random, and it shrinks a failing test case by simplifying the recorded
 /// choices and running the generator again. So every generator shrinks, including ones built with

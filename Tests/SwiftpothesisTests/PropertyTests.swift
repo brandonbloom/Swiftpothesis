@@ -135,3 +135,27 @@ func failures(_ body: () async -> Void) async -> [String] {
     }
     return recorded.withLock { $0 }
 }
+
+@Suite(.propertySettings { $0.database = nil })
+struct TestCaseTests {
+    @Test func drawsDependOnEarlierResults() async {
+        let issues = await failures {
+            await forAll { test in
+                let array = try test.draw(.arrays(of: .integers(in: 0...100), count: 1...20))
+                let index = try test.draw(.integers(in: 0...(array.count - 1)))
+                #expect(array[index] < 10)
+            }
+        }
+        #expect(issues.last?.contains("Draw 1: [10]\nDraw 2: 0") == true)
+    }
+
+    @Test func streamsDrawOnDemand() async {
+        let issues = await failures {
+            await forAll { test in
+                let total = test.stream(of: .integers(in: 0...10)).prefix(5).reduce(0, +)
+                #expect(total < 20)
+            }
+        }
+        #expect(issues.last?.contains("Counterexample:") == true)
+    }
+}
