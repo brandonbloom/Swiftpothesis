@@ -19,24 +19,29 @@ targets: [
 
 ## Write a property
 
-A property is a Swift Testing test that calls ``forAll(_:settings:sourceLocation:isolation:_:)`` with generators for its inputs. Check the inputs with `#expect` and `#require`, as in any test:
+A property is a Swift Testing test that calls ``forAll(_:settings:sourceLocation:_:)`` with generators for its inputs. Check the inputs with `#expect` and `#require`, as in any test:
 
 ```swift
 import Swiftpothesis
 import Testing
 
-@Test func sortingIsIdempotent() async {
-    await forAll([Int].arbitrary(Int.arbitrary(in: -100...100))) { array in
-        #expect(array.sorted().sorted() == array.sorted())
+@Suite(.propertySettings())
+struct SortingTests {
+    @Test func sortingIsIdempotent() {
+        forAll([Int].arbitrary(Int.arbitrary(in: -100...100))) { array in
+            #expect(array.sorted().sorted() == array.sorted())
+        }
     }
 }
 ```
 
+The `.propertySettings()` trait lets synchronous properties hold back the failures they find while searching and shrinking. Without it, Swift Testing lists those as known issues. Properties that `await` don't need it.
+
 Types that conform to ``Arbitrary`` can be requested by type alone:
 
 ```swift
-@Test func additionCommutes() async {
-    await forAll { (a: Int, b: Int) in
+@Test func additionCommutes() {
+    forAll { (a: Int, b: Int) in
         #expect(a &+ b == b &+ a)
     }
 }
@@ -47,8 +52,8 @@ Types that conform to ``Arbitrary`` can be requested by type alone:
 Suppose a property is wrong:
 
 ```swift
-@Test func everyArrayIsShort() async {
-    await forAll([Int].arbitrary(Int.arbitrary(in: 0...1000))) { array in
+@Test func everyArrayIsShort() {
+    forAll([Int].arbitrary(Int.arbitrary(in: 0...1000))) { array in
         #expect(array.allSatisfy { $0 < 50 })
     }
 }

@@ -10,8 +10,8 @@ A property-based test states something that should hold for every input, and Swi
 import Swiftpothesis
 import Testing
 
-@Test func shellQuotingRoundTrips() async throws {
-    await forAll(String.arbitrary) { string in
+@Test func shellQuotingRoundTrips() {
+    forAll(String.arbitrary) { string in
         #expect(try runShell("printf %s \(string.shellQuoted)") == string)
     }
 }
@@ -26,15 +26,22 @@ Swiftpothesis shrinks the way [Hypothesis](https://hypothesis.readthedocs.io) do
 ### Essentials
 
 - <doc:GettingStarted>
-- ``forAll(_:settings:sourceLocation:isolation:_:)``
-- ``forAll(settings:sourceLocation:isolation:_:)-(_,_,_,(T)->Void)``
-- ``forAll(settings:sourceLocation:isolation:_:)-(_,_,_,(TestCase)->Void)``
+- ``forAll(_:settings:sourceLocation:_:)``
+- ``forAll(settings:sourceLocation:_:)-(_,_,(T)->Void)``
+- ``PropertyResult``
 - ``assume(_:_:)``
 - ``note(_:)``
 
 ### Drawing While a Property Runs
 
+- ``forAll(settings:sourceLocation:_:)-(_,_,(TestCase)->Void)``
 - ``TestCase``
+
+### Asynchronous Properties
+
+- ``forAll(_:settings:sourceLocation:isolation:_:)``
+- ``forAll(settings:sourceLocation:isolation:_:)-(_,_,_,(T)->Void)``
+- ``forAll(settings:sourceLocation:isolation:_:)-(_,_,_,(TestCase)->Void)``
 
 ### Generators
 

@@ -14,9 +14,12 @@ Keywords: property-based testing, generative testing, QuickCheck, Hypothesis, sh
 import Swiftpothesis
 import Testing
 
-@Test func reversingTwiceIsIdentity() async {
-    await forAll { (array: [Int]) in
-        #expect(array.reversed().reversed() == array)
+@Suite(.propertySettings())
+struct ArrayTests {
+    @Test func reversingTwiceIsIdentity() {
+        forAll { (array: [Int]) in
+            #expect(array.reversed().reversed() == array)
+        }
     }
 }
 ```

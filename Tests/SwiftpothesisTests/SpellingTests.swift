@@ -30,13 +30,13 @@ struct SpellingTests {
         }
         let sums = zip(Int.arbitrary(in: 0...9), Int.arbitrary(in: 0...9)).map { a, b in a + b }
         let sentinel: some Generator<Int> = .oneOf(Int.arbitrary(in: 0...9), .constant(-1))
-        await forAll(pairs, nonEmpty, trees, sums, sentinel) { _, array, _, _, _ in
+        forAll(pairs, nonEmpty, trees, sums, sentinel) { _, array, _, _, _ in
             #expect(!array.isEmpty)
         }
     }
 
     @Test func typeOwnedGenerators() async {
-        await forAll(
+        forAll(
             [Int].arbitrary(Int.arbitrary(in: 0...9), count: 1...5),
             Set<String>.arbitrary(String.arbitrary(count: 1...4)),
             [String: Int].arbitrary(keys: String.arbitrary(count: 1...4), values: Int.arbitrary),
@@ -49,10 +49,10 @@ struct SpellingTests {
     }
 
     @Test func customTypes() async {
-        await forAll(Person.arbitrary(adultsOnly: true)) { adult in
+        forAll(Person.arbitrary(adultsOnly: true)) { adult in
             #expect(adult.age >= 18)
         }
-        await forAll { (people: [Person]) in
+        forAll { (people: [Person]) in
             #expect(people.allSatisfy { $0.age <= 120 })
         }
     }

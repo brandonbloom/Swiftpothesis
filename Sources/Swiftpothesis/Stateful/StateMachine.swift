@@ -98,13 +98,14 @@ extension StateMachine {
 ///   - settings: Options for this test. Defaults to the settings of the running test.
 ///   - sourceLocation: Where to attribute the summary issue.
 ///   - isolation: The actor the commands run on. Defaults to the caller's.
+@discardableResult
 public func check<M: StateMachine>(
     _ machine: M,
     steps: ClosedRange<Int> = 1...50,
     settings: Settings = .current,
     sourceLocation: SourceLocation = #_sourceLocation,
     isolation: isolated (any Actor)? = #isolation
-) async {
+) async -> PropertyResult {
     await Engine(settings: settings, sourceLocation: sourceLocation).run(isolation: isolation) {
         testCase, context in
         var model = machine.initialModel

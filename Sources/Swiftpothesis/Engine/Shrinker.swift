@@ -1,14 +1,33 @@
 /// Simplifies a failing test case's choices while it keeps failing the same way.
 ///
 /// Candidates are ordered shortlex: fewer choices are simpler, then lexicographically smaller
-/// ones. Each pass proposes simpler candidates and keeps any that still fail with the same
-/// ``Failure/signature``, until no pass makes progress or the budget runs out.
+/// ones. The shrinker proposes candidates one at a time with ``nextCandidate()`` and learns each
+/// one's outcome from ``record(_:)``, so the same shrinker serves synchronous and asynchronous
+/// properties. Passes run in rounds until a round makes no progress or the budget runs out. It
+/// uses no randomness, so shrinking is deterministic.
 ///
 /// TODO: Span-aware passes (delete, duplicate, and sort spans), as Hypothesis's shrinker has.
 struct Shrinker {
     private(set) var choices: [UInt64]
     private(set) var failure: Failure
     private var budget: Int
+    private var pass: Pass = .delete(sizeIndex: 0, start: nil)
+    private var improvedThisRound = false
+    private var awaitingResult = false
+
+    private enum Pass {
+        /// Deletes `deleteSizes[sizeIndex]` choices at `start` (nil: the last possible start),
+        /// moving from the end toward the front.
+        case delete(sizeIndex: Int, start: Int?)
+        /// Zeroes `zeroSizes[sizeIndex]` choices at `start`, moving toward the end.
+        case zero(sizeIndex: Int, start: Int)
+        /// Binary-searches the choice at `index` for its smallest failing value in `low...high`.
+        case minimize(index: Int, low: UInt64, high: UInt64)
+        case finished
+    }
+
+    private static let deleteSizes = [8, 4, 2, 1]
+    private static let zeroSizes = [8, 4, 2]
 
     init(choices: [UInt64], failure: Failure, budget: Int) {
         self.choices = choices
@@ -16,86 +35,108 @@ struct Shrinker {
         self.budget = budget
     }
 
-    /// Runs a candidate, returning the choices it actually drew and its failure, or nil if it
-    /// didn't fail.
-    typealias Attempt =
-        nonisolated(nonsending) ([UInt64]) async -> (choices: [UInt64], failure: Failure)?
-
-    nonisolated(nonsending) mutating func shrink(_ attempt: Attempt) async -> ([UInt64], Failure) {
-        var improved = true
-        while improved, budget > 0 {
-            improved = false
-            improved = await deleteChunks(attempt) || improved
-            improved = await zeroChunks(attempt) || improved
-            improved = await minimizeEach(attempt) || improved
+    /// The next candidate to run, or nil when shrinking is done.
+    mutating func nextCandidate() -> [UInt64]? {
+        while budget > 0 {
+            if case .finished = pass { return nil }
+            guard let candidate = candidate(), isSimpler(candidate, than: choices) else {
+                advance()
+                continue
+            }
+            budget -= 1
+            awaitingResult = true
+            return candidate
         }
-        return (choices, failure)
+        return nil
     }
 
-    /// Tries a candidate, adopting it if it's simpler and fails the same way.
-    nonisolated(nonsending) private mutating func consider(
-        _ candidate: [UInt64], _ attempt: Attempt
-    ) async -> Bool {
-        guard budget > 0, isSimpler(candidate, than: choices) else { return false }
-        budget -= 1
-        guard let result = await attempt(candidate),
-            result.failure.signature == failure.signature,
+    /// Records the outcome of the last candidate: the choices it drew and its failure, or nil if
+    /// it didn't fail.
+    mutating func record(_ result: (choices: [UInt64], failure: Failure)?) {
+        guard awaitingResult else { return }
+        awaitingResult = false
+        if let result, result.failure.signature == failure.signature,
             isSimpler(result.choices, than: choices)
-        else { return false }
-        (choices, failure) = (result.choices, result.failure)
-        return true
+        {
+            (choices, failure) = (result.choices, result.failure)
+            improvedThisRound = true
+            if case .minimize(let index, let low, _) = pass, index < choices.count {
+                // Keep searching below the new, smaller value.
+                pass = .minimize(index: index, low: low, high: choices[index])
+            } else {
+                advance()
+            }
+        } else if case .minimize(let index, let low, let high) = pass {
+            pass = .minimize(index: index, low: low + (high - low) / 2 + 1, high: high)
+        } else {
+            advance()
+        }
     }
 
-    nonisolated(nonsending) private mutating func deleteChunks(_ attempt: Attempt) async -> Bool {
-        var improved = false
-        for size in [8, 4, 2, 1] {
-            var start = choices.count - size
-            while start >= 0 {
-                var candidate = choices
-                candidate.removeSubrange(start..<Swift.min(start + size, candidate.count))
-                if await consider(candidate, attempt) { improved = true }
-                start -= 1
-                start = Swift.min(start, choices.count - size)
-            }
+    /// The candidate for the current step, or nil if the step is out of range.
+    private func candidate() -> [UInt64]? {
+        switch pass {
+        case .delete(let sizeIndex, let start):
+            let size = Self.deleteSizes[sizeIndex]
+            let start = start ?? choices.count - size
+            guard start >= 0, start + size <= choices.count else { return nil }
+            var candidate = choices
+            candidate.removeSubrange(start..<start + size)
+            return candidate
+        case .zero(let sizeIndex, let start):
+            let size = Self.zeroSizes[sizeIndex]
+            guard start + size <= choices.count else { return nil }
+            var candidate = choices
+            for i in start..<start + size { candidate[i] = 0 }
+            return candidate
+        case .minimize(let index, let low, let high):
+            guard index < choices.count, low < high else { return nil }
+            var candidate = choices
+            candidate[index] = low + (high - low) / 2
+            return candidate
+        case .finished:
+            return nil
         }
-        return improved
     }
 
-    nonisolated(nonsending) private mutating func zeroChunks(_ attempt: Attempt) async -> Bool {
-        var improved = false
-        for size in [8, 4, 2] {
-            var start = 0
-            while start + size <= choices.count {
-                var candidate = choices
-                for i in start..<start + size { candidate[i] = 0 }
-                if await consider(candidate, attempt) { improved = true }
-                start += 1
+    /// Moves to the next step, the next pass, or the next round.
+    private mutating func advance() {
+        switch pass {
+        case .delete(let sizeIndex, let start):
+            let size = Self.deleteSizes[sizeIndex]
+            let next = Swift.min((start ?? choices.count - size) - 1, choices.count - size)
+            if next >= 0 {
+                pass = .delete(sizeIndex: sizeIndex, start: next)
+            } else if sizeIndex + 1 < Self.deleteSizes.count {
+                pass = .delete(sizeIndex: sizeIndex + 1, start: nil)
+            } else {
+                pass = .zero(sizeIndex: 0, start: 0)
             }
+        case .zero(let sizeIndex, let start):
+            if start + 1 + Self.zeroSizes[sizeIndex] <= choices.count {
+                pass = .zero(sizeIndex: sizeIndex, start: start + 1)
+            } else if sizeIndex + 1 < Self.zeroSizes.count {
+                pass = .zero(sizeIndex: sizeIndex + 1, start: 0)
+            } else {
+                startMinimizing(at: 0)
+            }
+        case .minimize(let index, _, _):
+            startMinimizing(at: index + 1)
+        case .finished:
+            break
         }
-        return improved
     }
 
-    /// Binary-searches each choice down toward zero.
-    nonisolated(nonsending) private mutating func minimizeEach(_ attempt: Attempt) async -> Bool {
-        var improved = false
-        var index = 0
-        while index < choices.count {
-            var low: UInt64 = 0
-            var high = choices[index]
-            while low < high, budget > 0 {
-                let mid = low + (high - low) / 2
-                var candidate = choices
-                candidate[index] = mid
-                if await consider(candidate, attempt) {
-                    improved = true
-                    high = index < choices.count ? choices[index] : 0
-                } else {
-                    low = mid + 1
-                }
-            }
-            index += 1
+    private mutating func startMinimizing(at index: Int) {
+        if index < choices.count {
+            pass = .minimize(index: index, low: 0, high: choices[index])
+        } else if improvedThisRound {
+            // A round that made progress earns another.
+            improvedThisRound = false
+            pass = .delete(sizeIndex: 0, start: nil)
+        } else {
+            pass = .finished
         }
-        return improved
     }
 }
 

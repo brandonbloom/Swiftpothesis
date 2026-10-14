@@ -95,6 +95,25 @@ Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary
 
 **Cost.** Nested generators are verbose, such as `[[Int]].arbitrary([Int].arbitrary(Int.arbitrary(in: 0...9)))`. They're needed only when "any value" doesn't fit.
 
+## 5. `forAll`
+
+**Decision.** A property is a call to `forAll` inside an ordinary Swift Testing test. There are three forms (generators, `Arbitrary` types by closure parameter, and `TestCase`), each with a synchronous and an asynchronous overload. Async overloads take `isolation: isolated (any Actor)? = #isolation`, so properties run on the caller's actor and needn't be `@Sendable`. Parameter packs cover any number of generators.
+
+**Expect and require.** `forAll` behaves like `#expect`: it records the failure and the test continues. It returns a `@discardableResult PropertyResult`, whose `require()` throws to end the test like `#require`. The thrown error is an `ExpectationFailedError`, obtained by failing a `#require` with its issue captured, so Swift Testing doesn't report it again. The result also exposes the counterexample, for testing generators and for tooling.
+
+**Sync and async share one engine.** Swift has no `reasync`, so the engine is a `Driver` state machine that proposes choice sequences and records outcomes, with a pull-based `Shrinker`. The sync and async `run` loops only execute test cases. The same driver suits parallel execution or another backend later.
+
+**Holding back issues.** Async properties capture issues with `IssueHandlingTrait.provideScope`, which is public but async-only. Sync properties capture them through a handler that `.propertySettings()` installs for the test, which defers to a task-local sink; this is quiet. Without the trait, sync properties fall back to `withKnownIssue`, so the search's failures are listed as known issues, and a warning names the fix. Note that in an async test, a closure without `await` selects the sync overload.
+
+**Alternatives.**
+- A macro (`@Property`, `#forAll`): a swift-syntax dependency, slower builds, hidden control flow. Possible later as sugar.
+- `@Test(arguments:)`: arguments are fixed before the test runs, which rules out shrinking and the database.
+- A throwing `forAll`, or a separate `requireForAll`: Swift can't overload on `throws`, and two names split one concept.
+- `#require(forAll(…))`: reports the failure twice.
+- Async-only: forces `async` on tests that aren't.
+
+**Naming.** `forAll`, after QuickCheck, ScalaCheck, Kotest, and PropEr's `?FORALL`.
+
 ## Versioning
 
 Swiftpothesis follows [StableVer](https://github.com/brandonbloom/stablever). Until 1.0, every feature is alpha: subject to breaking changes at any time.

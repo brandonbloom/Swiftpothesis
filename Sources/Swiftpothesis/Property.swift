@@ -6,8 +6,8 @@ import Testing
 /// `#expect` and `#require`, or by throwing:
 ///
 /// ```swift
-/// @Test func reversingTwiceIsIdentity() async {
-///     await forAll([Int].arbitrary(Int.arbitrary(in: 0...100))) { array in
+/// @Test func reversingTwiceIsIdentity() {
+///     forAll([Int].arbitrary(Int.arbitrary(in: 0...100))) { array in
 ///         #expect(array.reversed().reversed() == array)
 ///     }
 /// }
@@ -18,20 +18,44 @@ import Testing
 /// their issues are recorded as usual, and records one more issue, at the call site, that shows
 /// the counterexample and how to reproduce it.
 ///
+/// Like `#expect`, `forAll` lets the test continue after a failure. To stop the test instead, as
+/// `#require` does, call ``PropertyResult/require()`` on the result.
+///
+/// Each form of `forAll` has a synchronous and an asynchronous overload. Synchronous properties
+/// hold back issues quietly only in tests with a ``PropertySettingsTrait``, such as
+/// `@Suite(.propertySettings())`; elsewhere Swift Testing lists them as known issues.
+///
 /// - Parameters:
 ///   - generators: The generators for the property's arguments.
 ///   - settings: Options for this property. Defaults to the settings of the running test.
 ///   - sourceLocation: Where to attribute the summary issue.
-///   - isolation: The actor the property runs on. Defaults to the caller's.
 ///   - property: The property, which fails by recording an issue or throwing an error, and can
 ///     discard its arguments with ``assume(_:_:)``.
+/// - Returns: The outcome, already reported if it's a failure.
+@discardableResult
+public func forAll<each G: Generator>(
+    _ generators: repeat each G,
+    settings: Settings = .current,
+    sourceLocation: SourceLocation = #_sourceLocation,
+    _ property: (repeat (each G).Value) throws -> Void
+) -> PropertyResult {
+    check(zip(repeat each generators), settings: settings, sourceLocation: sourceLocation) {
+        (values: (repeat (each G).Value)) in
+        try property(repeat each values)
+    }
+}
+
+/// Tests that an asynchronous property holds for generated values.
+///
+/// See ``forAll(_:settings:sourceLocation:_:)`` for details.
+@discardableResult
 public func forAll<each G: Generator>(
     _ generators: repeat each G,
     settings: Settings = .current,
     sourceLocation: SourceLocation = #_sourceLocation,
     isolation: isolated (any Actor)? = #isolation,
     _ property: (repeat (each G).Value) async throws -> Void
-) async {
+) async -> PropertyResult {
     await check(
         zip(repeat each generators), settings: settings, sourceLocation: sourceLocation,
         isolation: isolation
@@ -43,20 +67,36 @@ public func forAll<each G: Generator>(
 /// Tests that a property holds for generated values of ``Arbitrary`` types.
 ///
 /// ```swift
-/// @Test func additionCommutes() async {
-///     await forAll { (a: Int, b: Int) in
+/// @Test func additionCommutes() {
+///     forAll { (a: Int, b: Int) in
 ///         #expect(a &+ b == b &+ a)
 ///     }
 /// }
 /// ```
 ///
-/// See ``forAll(_:settings:sourceLocation:isolation:_:)`` for details.
+/// See ``forAll(_:settings:sourceLocation:_:)`` for details.
+@discardableResult
+public func forAll<each T: Arbitrary>(
+    settings: Settings = .current,
+    sourceLocation: SourceLocation = #_sourceLocation,
+    _ property: (repeat each T) throws -> Void
+) -> PropertyResult {
+    check(zip(repeat (each T).arbitrary), settings: settings, sourceLocation: sourceLocation) {
+        (values: (repeat each T)) in
+        try property(repeat each values)
+    }
+}
+
+/// Tests that an asynchronous property holds for generated values of ``Arbitrary`` types.
+///
+/// See ``forAll(_:settings:sourceLocation:_:)`` for details.
+@discardableResult
 public func forAll<each T: Arbitrary>(
     settings: Settings = .current,
     sourceLocation: SourceLocation = #_sourceLocation,
     isolation: isolated (any Actor)? = #isolation,
     _ property: (repeat each T) async throws -> Void
-) async {
+) async -> PropertyResult {
     await check(
         zip(repeat (each T).arbitrary), settings: settings, sourceLocation: sourceLocation,
         isolation: isolation
@@ -71,22 +111,38 @@ public func forAll<each T: Arbitrary>(
 /// drawn from `test` is shown in the failure report, in order.
 ///
 /// ```swift
-/// @Test func deletingAnyCreatedItem() async throws {
-///     await forAll { test in
-///         let ids = try await store.create(try test.draw([String].arbitrary(count: 1...10)))
-///         try await store.delete(try test.draw(.element(of: ids)))
-///         #expect(try await store.count == ids.count - 1)
+/// @Test func deletingAnyCreatedItem() {
+///     forAll { test in
+///         var store = Store()
+///         let ids = store.create(try test.draw([String].arbitrary(count: 1...10)))
+///         store.delete(try test.draw(.element(of: ids)))
+///         #expect(store.count == ids.count - 1)
 ///     }
 /// }
 /// ```
 ///
-/// See ``forAll(_:settings:sourceLocation:isolation:_:)`` for details.
+/// See ``forAll(_:settings:sourceLocation:_:)`` for details.
+@discardableResult
+public func forAll(
+    settings: Settings = .current,
+    sourceLocation: SourceLocation = #_sourceLocation,
+    _ property: (TestCase) throws -> Void
+) -> PropertyResult {
+    Engine(settings: settings, sourceLocation: sourceLocation).run { testCase, _ in
+        try property(testCase)
+    }
+}
+
+/// Tests that an asynchronous property holds, drawing values while it runs.
+///
+/// See ``forAll(settings:sourceLocation:_:)-(_,_,(TestCase)->Void)`` for details.
+@discardableResult
 public func forAll(
     settings: Settings = .current,
     sourceLocation: SourceLocation = #_sourceLocation,
     isolation: isolated (any Actor)? = #isolation,
     _ property: (TestCase) async throws -> Void
-) async {
+) async -> PropertyResult {
     await Engine(settings: settings, sourceLocation: sourceLocation).run(isolation: isolation) {
         testCase, _ in
         try await property(testCase)
@@ -129,15 +185,28 @@ public func target(_ score: Double, label: String = "") {
     PropertyContext.current?.targets[label] = score
 }
 
-// Both `forAll` overloads funnel through here, rather than one forwarding its closure to the other,
+// The `forAll` overloads funnel through these, rather than forwarding closures to each other,
 // which crashes at run time ("freed pointer was not the last allocation") as of Swift 6.4.
+private func check<G: Generator>(
+    _ generator: G,
+    settings: Settings,
+    sourceLocation: SourceLocation,
+    _ property: (G.Value) throws -> Void
+) -> PropertyResult {
+    Engine(settings: settings, sourceLocation: sourceLocation).run { testCase, context in
+        let value = try testCase.draw(generator)
+        context.description = String(reflecting: value)
+        try property(value)
+    }
+}
+
 private func check<G: Generator>(
     _ generator: G,
     settings: Settings,
     sourceLocation: SourceLocation,
     isolation: isolated (any Actor)?,
     _ property: (G.Value) async throws -> Void
-) async {
+) async -> PropertyResult {
     await Engine(settings: settings, sourceLocation: sourceLocation).run(isolation: isolation) {
         testCase, context in
         let value = try testCase.draw(generator)
