@@ -86,13 +86,7 @@ public struct PropertySettingsTrait: TestTrait, SuiteTrait, TestScoping {
     ) async throws {
         var settings = Settings.current
         transform(&settings)
-        // Also install the handler that lets synchronous properties hold back issues quietly.
-        try await Settings.$scoped.withValue(settings) {
-            try await IssueSink.$isHandlerInstalled.withValue(true) {
-                try await IssueSink.handler.provideScope(
-                    for: test, testCase: testCase, performing: function)
-            }
-        }
+        try await Settings.$scoped.withValue(settings) { try await function() }
     }
 }
 
@@ -103,11 +97,8 @@ extension Trait where Self == PropertySettingsTrait {
     /// @Test(.propertySettings { $0.maxExamples = 1000 })
     /// func roundTrip() async { … }
     /// ```
-    ///
-    /// With no arguments, it keeps the current settings. Synchronous properties need some
-    /// `propertySettings` trait on their test or suite to hold back issues quietly.
     public static func propertySettings(
-        _ transform: @escaping @Sendable (inout Settings) -> Void = { _ in }
+        _ transform: @escaping @Sendable (inout Settings) -> Void
     ) -> Self {
         PropertySettingsTrait(transform: transform)
     }

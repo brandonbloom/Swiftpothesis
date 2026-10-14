@@ -97,20 +97,21 @@ Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary
 
 ## 5. `forAll`
 
-**Decision.** A property is a call to `forAll` inside an ordinary Swift Testing test. There are three forms (generators, `Arbitrary` types by closure parameter, and `TestCase`), each with a synchronous and an asynchronous overload. Async overloads take `isolation: isolated (any Actor)? = #isolation`, so properties run on the caller's actor and needn't be `@Sendable`. Parameter packs cover any number of generators.
+**Decision.** A property is a call to `forAll` inside an ordinary Swift Testing test. There are three forms: generators, `Arbitrary` types by closure parameter, and `TestCase`. All are `async` and take `isolation: isolated (any Actor)? = #isolation`, so properties run on the caller's actor and needn't be `@Sendable` or `async` themselves. Parameter packs cover any number of generators.
 
 **Expect and require.** `forAll` behaves like `#expect`: it records the failure and the test continues. It returns a `@discardableResult PropertyResult`, whose `require()` throws to end the test like `#require`. The thrown error is an `ExpectationFailedError`, obtained by failing a `#require` with its issue captured, so Swift Testing doesn't report it again. The result also exposes the counterexample, for testing generators and for tooling.
 
-**Sync and async share one engine.** Swift has no `reasync`, so the engine is a `Driver` state machine that proposes choice sequences and records outcomes, with a pull-based `Shrinker`. The sync and async `run` loops only execute test cases. The same driver suits parallel execution or another backend later.
+**Holding back issues.** Issues recorded while searching and shrinking are captured with `IssueHandlingTrait.provideScope`, which is public but async. This is why `forAll` is async-only.
 
-**Holding back issues.** Async properties capture issues with `IssueHandlingTrait.provideScope`, which is public but async-only. Sync properties capture them through a handler that `.propertySettings()` installs for the test, which defers to a task-local sink; this is quiet. Without the trait, sync properties fall back to `withKnownIssue`, so the search's failures are listed as known issues, and a warning names the fix. Note that in an async test, a closure without `await` selects the sync overload.
+**Engine shape.** The engine is a `Driver` state machine that proposes choice sequences and records outcomes, with a pull-based `Shrinker`; a loop runs each test case. Keeping the driver apart from execution lets a synchronous loop, parallel execution, or another backend reuse it.
+
+**Sync overloads: built, then removed.** Sync overloads worked by having `.propertySettings()` install an issue handler that deferred to a task-local sink. That needed the trait on every test with a non-`await`ing property (including those in `async` tests, where such closures select the sync overload), printed every failing search step as a known issue when the trait was missing, and relied on Swift Testing calling issue handlers synchronously on the recording thread, which isn't documented. Their benefit, omitting `async` and `await`, didn't justify that. Revisit if Swift Testing gains synchronous scoped issue handling; the driver already supports a synchronous loop.
 
 **Alternatives.**
 - A macro (`@Property`, `#forAll`): a swift-syntax dependency, slower builds, hidden control flow. Possible later as sugar.
 - `@Test(arguments:)`: arguments are fixed before the test runs, which rules out shrinking and the database.
 - A throwing `forAll`, or a separate `requireForAll`: Swift can't overload on `throws`, and two names split one concept.
 - `#require(forAll(…))`: reports the failure twice.
-- Async-only: forces `async` on tests that aren't.
 
 **Naming.** `forAll`, after QuickCheck, ScalaCheck, Kotest, and PropEr's `?FORALL`.
 

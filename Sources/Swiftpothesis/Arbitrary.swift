@@ -4,7 +4,7 @@
 /// request values by type alone:
 ///
 /// ```swift
-/// forAll { (name: String, tags: [String]) in
+/// await forAll { (name: String, tags: [String]) in
 ///     #expect(Item(name: name, tags: tags).isValid)
 /// }
 /// ```
@@ -13,7 +13,7 @@
 /// convention taking at least one argument:
 ///
 /// ```swift
-/// forAll(Int.arbitrary(in: 0...9), [String].arbitrary(count: 1...3)) { digit, tags in … }
+/// await forAll(Int.arbitrary(in: 0...9), [String].arbitrary(count: 1...3)) { digit, tags in … }
 /// ```
 ///
 /// A narrowed generator produces a subset of the values ``arbitrary`` can, though it may produce

@@ -5,7 +5,7 @@
 /// stop a test when a property fails, as `#require` does:
 ///
 /// ```swift
-/// try forAll(Int.arbitrary) { x in
+/// try await forAll(Int.arbitrary) { x in
 ///     #expect(parse(format(x)) == x)
 /// }.require()
 /// ```

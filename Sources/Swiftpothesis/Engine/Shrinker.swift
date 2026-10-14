@@ -2,8 +2,8 @@
 ///
 /// Candidates are ordered shortlex: fewer choices are simpler, then lexicographically smaller
 /// ones. The shrinker proposes candidates one at a time with ``nextCandidate()`` and learns each
-/// one's outcome from ``record(_:)``, so the same shrinker serves synchronous and asynchronous
-/// properties. Passes run in rounds until a round makes no progress or the budget runs out. It
+/// one's outcome from ``record(_:)``, leaving how candidates run to the ``Driver``'s caller.
+/// Passes run in rounds until a round makes no progress or the budget runs out. It
 /// uses no randomness, so shrinking is deterministic.
 ///
 /// TODO: Span-aware passes (delete, duplicate, and sort spans), as Hypothesis's shrinker has.

@@ -5,9 +5,6 @@ import Testing
 /// property. Drawing and checking may interleave.
 typealias TestFunction = (TestCase, PropertyContext) async throws -> Void
 
-/// The synchronous form of ``TestFunction``.
-typealias SyncTestFunction = (TestCase, PropertyContext) throws -> Void
-
 /// The result of running one test case.
 enum Outcome {
     case passed
@@ -44,8 +41,8 @@ final class PropertyContext: @unchecked Sendable {
 /// Decides which choice sequences to run, in which phase, without running any of them.
 ///
 /// The driver is a state machine: ``next()`` proposes a source for the next test case, and
-/// ``record(_:source:)`` reports how it went. Synchronous and asynchronous properties share it,
-/// and differ only in the loop that runs each test case. See ``Engine``.
+/// ``record(_:source:)`` reports how it went. Keeping it apart from the loop that runs test cases
+/// lets another loop reuse it, such as a synchronous one or one that runs test cases in parallel.
 struct Driver {
     let settings: Settings
     let databaseKey: String
@@ -154,8 +151,8 @@ struct Driver {
 
 /// Runs the phases of testing one property and reports the result through Swift Testing.
 ///
-/// The ``Driver`` decides what to run; the engine's synchronous and asynchronous `run` loops only
-/// run test cases with their issues captured, then replay and report the shrunk failure.
+/// The ``Driver`` decides what to run; the engine runs test cases with their issues captured, then
+/// replays and reports the shrunk failure.
 struct Engine {
     let settings: Settings
     let sourceLocation: SourceLocation
@@ -192,37 +189,6 @@ struct Engine {
         }
         _ = testCase.close()
         let required = await withIssuesCaptured(isolation: isolation) { try requireFailure() }
-        return finish(driver, context: context, requireError: required.error)
-    }
-
-    func run(_ test: SyncTestFunction) -> PropertyResult {
-        var driver = Driver(settings: settings, databaseKey: databaseKey)
-        while let source = driver.next() {
-            let context = PropertyContext()
-            let testCase = TestCase(source)
-            let captured = withIssuesCaptured {
-                try PropertyContext.$current.withValue(context) {
-                    try test(testCase, context)
-                }
-            }
-            driver.record(outcome(captured), source: testCase.close())
-        }
-        guard let found = driver.found else { return finish(driver) }
-        if Test.current != nil, !IssueSink.isHandlerInstalled {
-            Issue.record(
-                "Issues held back while shrinking were listed as known issues. Add .propertySettings() to this test or its suite to hold them back quietly.",
-                severity: .warning, sourceLocation: sourceLocation)
-        }
-        // Replay the shrunk failure with its issues recorded.
-        let context = PropertyContext()
-        let testCase = TestCase(Source(prefix: found.choices, random: nil))
-        do {
-            try PropertyContext.$current.withValue(context) { try test(testCase, context) }
-        } catch {
-            recordReplayError(error)
-        }
-        _ = testCase.close()
-        let required = withIssuesCaptured { try requireFailure() }
         return finish(driver, context: context, requireError: required.error)
     }
 
