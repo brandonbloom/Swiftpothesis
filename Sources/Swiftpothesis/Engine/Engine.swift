@@ -24,12 +24,31 @@ struct Failure {
     /// prove different bugs, nor the same origin the same bug, and a smaller failing input is the
     /// more useful report either way. See ``Shrinker``.
     var origin: String {
+        if error is DeadlineExceeded { return "the deadline" }
         if let location = issues.first?.sourceLocation {
             return "\(location.fileName):\(location.line)"
         }
         if let error { return "a thrown \(type(of: error))" }
         return "an unknown location"
     }
+}
+
+/// The error for a test case that ran past ``Settings/deadline``.
+struct DeadlineExceeded: Error, CustomStringConvertible {
+    var elapsed: Duration
+    var deadline: Duration
+
+    var description: String {
+        "Deadline exceeded: the test case took \(format(elapsed)), and the deadline is \(format(deadline))."
+    }
+}
+
+/// A duration in milliseconds, for reports.
+func format(_ duration: Duration) -> String {
+    let milliseconds =
+        Double(duration.components.seconds) * 1000
+        + Double(duration.components.attoseconds) / 1e15
+    return "\(Int(milliseconds.rounded())) ms"
 }
 
 /// Per-test-case state that ``note(_:)``, ``label(_:)``, and ``target(_:label:)`` write to.
@@ -123,6 +142,21 @@ struct Driver {
         }
     }
 
+    /// Whether the driver is shrinking a failure.
+    var isShrinking: Bool {
+        if case .shrink = state { true } else { false }
+    }
+
+    /// Whether the driver is generating new test cases.
+    var isGenerating: Bool {
+        if case .generate = state { true } else { false }
+    }
+
+    /// Ends the generate phase early, as when ``Settings/timeLimit`` runs out.
+    mutating func endGeneration() {
+        if isGenerating { state = .done }
+    }
+
     /// Records the outcome of the test case run from the last source ``next()`` returned.
     mutating func record(_ outcome: Outcome, source: Source) {
         switch state {
@@ -183,36 +217,122 @@ struct Engine {
 
     func run(isolation: isolated (any Actor)?, _ test: TestFunction) async -> PropertyResult {
         var driver = Driver(settings: settings, databaseKey: databaseKey)
-        while let source = driver.next() {
+        let clock = ContinuousClock()
+        let start = clock.now
+        var isFirst = true
+        while true {
+            if let timeLimit = settings.timeLimit, driver.isGenerating,
+                clock.now - start > timeLimit
+            {
+                driver.endGeneration()
+            }
+            guard let source = driver.next() else { break }
+            // The first test case is exempt from the deadline, and shrinking allows a margin.
+            let deadline =
+                isFirst ? nil : settings.deadline.map { driver.isShrinking ? $0 * 1.25 : $0 }
+            isFirst = false
             let context = PropertyContext()
             let testCase = TestCase(source)
-            let captured = await withIssuesCaptured(isolation: isolation) {
-                try await PropertyContext.$current.withValue(context) {
-                    try await test(testCase, context)
-                }
-            }
-            driver.record(outcome(captured), source: testCase.close())
+            let run = await execute(
+                test, testCase, context, deadline: deadline, capturing: true, isolation: isolation)
+            driver.record(outcome(run, deadline: deadline), source: testCase.close())
         }
         guard let found = driver.found else { return finish(driver) }
         // Replay the shrunk failure with its issues recorded.
         let context = PropertyContext()
         let testCase = TestCase(Source(prefix: found.choices, random: nil))
-        do {
-            try await PropertyContext.$current.withValue(context) {
-                try await test(testCase, context)
+        let replay = await execute(
+            test, testCase, context, deadline: settings.deadline.map { $0 * 1.25 },
+            capturing: false,
+            isolation: isolation)
+        _ = testCase.close()
+        if let late = found.failure.error as? DeadlineExceeded {
+            if let deadline = settings.deadline, replay.elapsed > deadline {
+                Issue.record(
+                    Comment(
+                        rawValue: DeadlineExceeded(elapsed: replay.elapsed, deadline: deadline)
+                            .description), sourceLocation: sourceLocation)
+            } else {
+                Issue.record(
+                    "Flaky: the test case exceeded its deadline while searching, taking \(format(late.elapsed)), but took \(format(replay.elapsed)) when replayed.",
+                    sourceLocation: sourceLocation)
             }
-        } catch {
+        } else if let error = replay.error {
             recordReplayError(error)
         }
-        _ = testCase.close()
         let required = await withIssuesCaptured(isolation: isolation) { try requireFailure() }
         return finish(driver, context: context, requireError: required.error)
     }
 
-    private func outcome(_ captured: (issues: [Issue], error: (any Error)?)) -> Outcome {
-        if let rejection = captured.error as? Rejection { return .discarded(rejection) }
-        if captured.issues.isEmpty, captured.error == nil { return .passed }
-        return .failed(Failure(issues: captured.issues, error: captured.error))
+    /// Runs one test case on `isolation`, cancelling it if it runs past `deadline`, and measures
+    /// how long it took. When `capturing`, the issues it records are held back and returned.
+    private func execute(
+        _ test: TestFunction, _ testCase: TestCase, _ context: PropertyContext,
+        deadline: Duration?, capturing: Bool, isolation: isolated (any Actor)?
+    ) async -> (issues: [Issue], error: (any Error)?, elapsed: Duration, timedOut: Bool) {
+        // The closures built here don't outlive this function, which waits for its tasks.
+        await withoutActuallyEscaping(test) { test in
+            let body = {
+                try await PropertyContext.$current.withValue(context) {
+                    try await test(testCase, context)
+                }
+            }
+            let clock = ContinuousClock()
+            let start = clock.now
+            guard let deadline else {
+                let result = await run(body, capturing: capturing, isolation: isolation)
+                return (result.issues, result.error, clock.now - start, false)
+            }
+            // Race the test case against a timer, in child tasks so the timer can cancel it. The test
+            // case still runs on `isolation`. `body` isn't Sendable, but it's safe to smuggle into the
+            // child task: this function waits for the group, so `body` never runs concurrently with
+            // its caller.
+            nonisolated(unsafe) let unsafeBody = body
+            let result = Mutex<(issues: [Issue], error: (any Error)?)>(([], nil))
+            let timedOut = Mutex(false)
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    let outcome = await self.run(
+                        unsafeBody, capturing: capturing, isolation: isolation)
+                    result.withLock { $0 = outcome }
+                }
+                group.addTask {
+                    guard (try? await Task.sleep(for: deadline)) != nil else { return }
+                    timedOut.withLock { $0 = true }
+                }
+                await group.next()
+                group.cancelAll()
+            }
+            let (issues, error) = result.withLock { $0 }
+            return (issues, error, clock.now - start, timedOut.withLock { $0 })
+
+        }
+    }
+
+    private func run(
+        _ body: () async throws -> Void, capturing: Bool, isolation: isolated (any Actor)?
+    ) async -> (issues: [Issue], error: (any Error)?) {
+        if capturing { return await withIssuesCaptured(isolation: isolation, body) }
+        do {
+            try await body()
+            return ([], nil)
+        } catch {
+            return ([], error)
+        }
+    }
+
+    private func outcome(
+        _ run: (issues: [Issue], error: (any Error)?, elapsed: Duration, timedOut: Bool),
+        deadline: Duration?
+    ) -> Outcome {
+        if let deadline, run.timedOut || run.elapsed > deadline {
+            return .failed(
+                Failure(
+                    issues: [], error: DeadlineExceeded(elapsed: run.elapsed, deadline: deadline)))
+        }
+        if let rejection = run.error as? Rejection { return .discarded(rejection) }
+        if run.issues.isEmpty, run.error == nil { return .passed }
+        return .failed(Failure(issues: run.issues, error: run.error))
     }
 
     private func recordReplayError(_ error: any Error) {

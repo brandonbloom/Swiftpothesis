@@ -20,6 +20,26 @@ public struct Settings: Sendable {
     /// The most test cases to run while shrinking a failure.
     public var maxShrinks = 1000
 
+    /// The longest one test case may take before it fails. Nil disables the deadline.
+    ///
+    /// A test case that runs past its deadline is cancelled and fails, and shrinking looks for the
+    /// smallest input that's still slow: often an accidentally quadratic algorithm or an unbounded
+    /// loop. Cancellation is cooperative, so a property that never suspends or checks for
+    /// cancellation runs to completion first, and is then reported as late. To guard against hangs,
+    /// also use Swift Testing's `.timeLimit(_:)` trait.
+    ///
+    /// The run's first test case is exempt, since one-time setup often makes it slow. While
+    /// shrinking, a test case must exceed the deadline by 25% to count as slow, so timing noise
+    /// doesn't steer shrinking. If the shrunk example meets its deadline when replayed, the failure
+    /// is reported as flaky.
+    public var deadline: Duration? = .seconds(1)
+
+    /// The longest the ``Phase/generate`` phase may take. Nil, the default, means no limit.
+    ///
+    /// When the time is up, generation stops and the property passes with fewer than
+    /// ``maxExamples`` examples. ``PropertyResult/examples`` reports how many ran.
+    public var timeLimit: Duration?
+
     /// Where failing examples are saved and replayed from. Nil disables persistence.
     public var database: (any ExampleDatabase)? = DirectoryDatabase.default
 

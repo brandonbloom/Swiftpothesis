@@ -125,6 +125,22 @@ Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary
 
 **Later.** Reporting several distinct failures per run, as Hypothesis's `report_multiple_bugs` does, could build on the same bookkeeping.
 
+## 7. Settings and time
+
+**Decision.** One `Settings` value struct: `maxExamples` (100), `seed` (random), `maxShrinks` (1000), `database` (the directory database), `phases` (all), `suppressedHealthChecks` (none), `deadline` (1 second), and `timeLimit` (none). Precedence, lowest to highest: defaults, `SWIFTPOTHESIS_*` environment variables, `.propertySettings { … }` traits (suite, then test), and `forAll`'s `settings:` argument. Explicit code wins over the environment.
+
+**Profiles** (named presets such as `ci`, chosen by `SWIFTPOTHESIS_PROFILE`) are deferred until a second preset is worth naming.
+
+**Deadlines were built early,** because timing is hard to retrofit into an engine.
+- `deadline` limits one test case. A late test case fails, so shrinking finds the smallest slow input. Each test case races a timer in a task group and is cancelled at the deadline, while still running on the caller's actor. Cancellation is cooperative: a property that never suspends finishes first and is then reported as late. Swift Testing's `.timeLimit` trait remains the guard against real hangs.
+- The first test case is exempt, since one-time setup makes it unrepresentative.
+- While shrinking, a test case must exceed the deadline by 25% to count, so timing noise doesn't steer shrinking.
+- If the shrunk example meets its deadline on replay, the failure is reported as flaky.
+- The 1-second default is looser than Hypothesis's 200 ms, to allow for debug builds and simulators.
+- `timeLimit` caps the generate phase; when it runs out, the property passes with fewer examples.
+
+**Alternatives.** Deadlines as warnings rather than failures (easy to ignore); deadlines off by default (slow inputs are often real bugs); limiting shrinking by time rather than attempts (makes results depend on machine speed).
+
 ## Versioning
 
 Swiftpothesis follows [StableVer](https://github.com/brandonbloom/stablever). Until 1.0, every feature is alpha: subject to breaking changes at any time.

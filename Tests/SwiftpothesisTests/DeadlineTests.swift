@@ -1,0 +1,66 @@
+import Synchronization
+import Testing
+
+@testable import Swiftpothesis
+
+@Suite(.propertySettings { $0.database = nil })
+struct DeadlineTests {
+    @Test(.propertySettings { $0.deadline = .milliseconds(20) })
+    func slowExamplesFailAndShrink() async {
+        let issues = await failures {
+            await forAll(Int.arbitrary(in: 0...100)) { x in
+                // Cancellation ends the sleep early, so slow cases cost about the deadline.
+                try await Task.sleep(for: .milliseconds(x))
+            }
+        }
+        #expect(issues.contains { $0.contains("Deadline exceeded") })
+        let summary = issues.last ?? ""
+        #expect(summary.contains("Counterexample:"))
+        // The smallest slow input sleeps somewhat less than the deadline, since scheduling adds a
+        // few milliseconds to every test case.
+        let x = Int(summary.split(separator: "Counterexample: ").last?.prefix { $0.isNumber } ?? "")
+        #expect(x.map { (5...60).contains($0) } == true)
+    }
+
+    @Test(.propertySettings { $0.deadline = .milliseconds(10) })
+    func uncancellableLoopsAreReportedAfterTheyFinish() async {
+        let issues = await failures {
+            await forAll(Bool.arbitrary) { slow in
+                guard slow else { return }
+                let clock = ContinuousClock()
+                let end = clock.now + .milliseconds(30)
+                while clock.now < end {}  // Never suspends, so can't be cancelled.
+            }
+        }
+        #expect(issues.contains { $0.contains("Deadline exceeded") })
+    }
+
+    @Test(.propertySettings { $0.deadline = .milliseconds(10) })
+    func fastReplayIsReportedAsFlaky() async {
+        let calls = Mutex(0)
+        let issues = await failures {
+            await forAll(Int.arbitrary(in: 0...9)) { _ in
+                // Slow only for the first few calls after the exempt first one.
+                let call = calls.withLock { count in
+                    count += 1
+                    return count
+                }
+                if (2...4).contains(call) { try await Task.sleep(for: .milliseconds(50)) }
+            }
+        }
+        #expect(issues.contains { $0.contains("Flaky") })
+    }
+
+    @Test(
+        .propertySettings {
+            $0.timeLimit = .milliseconds(50)
+            $0.maxExamples = 10_000
+        })
+    func timeLimitEndsGenerationEarly() async {
+        let result = await forAll(Bool.arbitrary) { _ in
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(result.passed)
+        #expect(result.examples < 10_000)
+    }
+}
