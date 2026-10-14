@@ -21,7 +21,11 @@
 /// generators.
 public protocol Generator<Value>: Sendable {
     /// The type of value this generator produces.
-    associatedtype Value
+    ///
+    /// Generated values should be pure values. To test a type that isn't `Sendable`, such as a
+    /// view or a mutable class, generate a `Sendable` description of it and construct the
+    /// instance inside the property.
+    associatedtype Value: Sendable
 
     /// Produces a value by drawing choices from a source.
     ///

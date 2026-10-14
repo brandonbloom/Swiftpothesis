@@ -41,3 +41,20 @@ Contributor-facing notes on why Swiftpothesis is built the way it is. User docum
 ## Versioning
 
 Swiftpothesis follows [StableVer](https://github.com/brandonbloom/stablever). Until 1.0, every feature is alpha: subject to breaking changes at any time.
+
+## 3. The `Generator` protocol
+
+**Decision.**
+
+```swift
+public protocol Generator<Value>: Sendable {
+    associatedtype Value: Sendable
+    func generate(from source: inout Source) throws(Rejection) -> Value
+}
+```
+
+- **A protocol, not a closure-wrapping `Gen<Value>` struct** (swift-gen, PropertyBased, SwiftCheck). Combinators return concrete types in the `Generators` namespace, which the compiler can specialize; users write `some Generator<T>`, and `AnyGenerator` erases when needed. Cost: concrete types leak into spelled-out signatures, notably `Arbitrary` conformances.
+- **Generators are `Sendable`**, so they can live in `static let`s and traits. Closures passed to combinators must be `@Sendable`.
+- **Values are `Sendable`.** Generated values should be pure values; `Sendable` is the floor the compiler can check. It lets properties hand inputs to tasks and actors, and leaves room for running test cases in parallel. To test a non-`Sendable` type, generate a `Sendable` description of it and construct the instance inside the property. `Arbitrary` refines `Sendable` accordingly.
+- **`inout Source`.** Generation is one sequential pass with no shrink tree, and `inout` makes that ownership explicit without a reference type.
+- **Typed `throws(Rejection)`.** The only way generation fails is by discarding the test case.

@@ -13,7 +13,7 @@
 ///
 /// TODO: An `@Arbitrary` macro that derives conformances for structs and enums from their
 /// stored properties and cases.
-public protocol Arbitrary {
+public protocol Arbitrary: Sendable {
     /// The type of the default generator.
     associatedtype ArbitraryGenerator: Generator<Self>
 
