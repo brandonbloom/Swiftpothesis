@@ -25,16 +25,17 @@ public struct ChoiceSequence: Hashable, Sendable, Codable, CustomStringConvertib
     /// The choices, in the order they were drawn.
     public var choices: [UInt64]
 
-    /// How the counterexample these choices produced was described when they were saved.
+    /// The values drawn from these choices when they were saved, in order, as described in
+    /// failure reports.
     ///
-    /// Replaying the choices after a generator changes can produce a different value. Comparing
-    /// descriptions catches that, so a stale saved example is reported rather than silently
-    /// testing something else. It doesn't affect equality.
-    public var counterexample: String?
+    /// Replaying the choices after a generator changes can produce different values. Comparing
+    /// draws catches that, so a stale saved example is reported rather than silently testing
+    /// something else. It doesn't affect equality.
+    public var draws: [String]?
 
-    public init(_ choices: [UInt64], counterexample: String? = nil) {
+    public init(_ choices: [UInt64], draws: [String]? = nil) {
         self.choices = choices
-        self.counterexample = counterexample
+        self.draws = draws
     }
 
     public static func == (a: ChoiceSequence, b: ChoiceSequence) -> Bool { a.choices == b.choices }
@@ -47,10 +48,12 @@ public struct ChoiceSequence: Hashable, Sendable, Codable, CustomStringConvertib
 }
 
 /// An ``ExampleDatabase`` that keeps examples in memory, for the life of the process.
-public final class InMemoryDatabase: ExampleDatabase {
+public final class InMemoryDatabase: ExampleDatabase, CustomStringConvertible {
     private let storage = Mutex<[String: Set<ChoiceSequence>]>([:])
 
     public init() {}
+
+    public var description: String { "an in-memory database" }
 
     public func fetch(_ key: String) -> [ChoiceSequence] {
         storage.withLock { Array($0[key] ?? []) }
@@ -70,13 +73,15 @@ public final class InMemoryDatabase: ExampleDatabase {
 /// Each key is a subdirectory named by a hash of the key, and each value is a JSON file in it,
 /// in an envelope that identifies its format and version. Files from another version are ignored
 /// with a warning: the database is a cache, safe to delete at any time.
-public struct DirectoryDatabase: ExampleDatabase {
+public struct DirectoryDatabase: ExampleDatabase, CustomStringConvertible {
     /// The directory holding the database.
     public var url: URL
 
     public init(url: URL) {
         self.url = url
     }
+
+    public var description: String { url.path(percentEncoded: false) }
 
     /// The database at `$SWIFTPOTHESIS_DATABASE`, or else in the user's cache directory:
     /// `~/Library/Caches/Swiftpothesis/examples` on Apple platforms, and under `$XDG_CACHE_HOME`

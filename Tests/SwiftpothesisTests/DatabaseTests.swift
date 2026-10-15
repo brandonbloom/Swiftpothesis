@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import Swiftpothesis
@@ -79,7 +80,45 @@ struct DatabaseTests {
                 #expect(x < 500)
             }
         }
-        #expect(replayed.contains { $0.contains("replayed as 501, but it was saved as 500") })
+        #expect(replayed.contains { $0.contains("drew 501 when replayed, where it drew 500") })
+        #expect(replayed.last?.contains("by a failure saved in an earlier run") == true)
+    }
+
+    @Test func replaysThatGetFurtherArentStale() async {
+        // Fails at its third command until "fixed", then runs to its finish.
+        struct Machine: SequentialMachine {
+            let fixed: Bool
+            func makeState() -> Int { 0 }
+            func commands(for state: Int) -> some Generator<Int> { Int.arbitrary(in: 0...9) }
+            func run(_ command: Int, state: inout Int) async throws {
+                state += 1
+                if !fixed { #expect(state < 3) }
+            }
+        }
+        let database = InMemoryDatabase()
+        var settings = Settings.defaults
+        settings.database = database
+        _ = await failures {
+            await check(Machine(fixed: false), id: "machine", settings: settings)
+        }
+        settings.phases = [.reuse]
+        let issues = Mutex<[String]>([])
+        await withKnownIssue(isIntermittent: true) {
+            await check(Machine(fixed: true), id: "machine", settings: settings)
+        } matching: { issue in
+            issues.withLock { $0.append(issue.comments.map(\.rawValue).joined()) }
+            return true
+        }
+        #expect(!issues.withLock { $0 }.contains { $0.contains("Its generators probably changed") })
+    }
+
+    @Test func freshFailuresCountExamples() async {
+        var settings = Settings.defaults
+        settings.database = InMemoryDatabase()
+        let issues = await failures {
+            await forAll(Int.arbitrary(in: 0...1000), settings: settings) { x in #expect(x < 5) }
+        }
+        #expect(issues.last?.contains("Property falsified after") == true)
     }
 
     @Test func propertiesAreNumberedWithinATest() {

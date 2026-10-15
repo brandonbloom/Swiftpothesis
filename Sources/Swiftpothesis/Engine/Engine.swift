@@ -116,6 +116,8 @@ struct Driver {
     /// Saved examples whose replays describe a different counterexample than when they were
     /// saved, probably because their generators changed.
     private(set) var staleReplays: [(saved: String, replayed: String)] = []
+    /// Whether `found` came from replaying a saved failure rather than from this run's search.
+    private(set) var replayedSavedFailure = false
     /// Whether shrinking stopped because it ran out of attempts.
     private(set) var shrinkingRanOutOfAttempts = false
     private var state: State
@@ -293,19 +295,24 @@ struct Driver {
     /// Records the outcome of the test case run from the last source ``next()`` returned.
     ///
     /// - Parameters:
-    ///   - description: How the test case's values were described.
+    ///   - draws: The values the test case drew, as described in reports.
     ///   - targets: The test case's ``target(_:label:)`` scores.
     ///   - labels: The test case's ``label(_:)`` labels.
     mutating func record(
-        _ outcome: Outcome, source: Source, description: String = "",
+        _ outcome: Outcome, source: Source, draws: [String] = [],
         targets: [String: Double] = [:], labels: Set<String> = []
     ) {
         switch state {
         case .reuse(let saved, let index):
-            if let counterexample = saved[index].counterexample, counterexample != description {
-                staleReplays.append((counterexample, description))
+            // Compare draws, not reports: a replay can stop earlier or run further than the
+            // saved failure did, as when the bug was fixed, so only differing values are stale.
+            if let savedDraws = saved[index].draws,
+                let difference = zip(savedDraws, draws).first(where: { $0 != $1 })
+            {
+                staleReplays.append(difference)
             }
             if case .failed(let failure) = outcome {
+                replayedSavedFailure = true
                 foundFailure(source, failure)
             } else {
                 settings.database?.delete(saved[index], for: databaseKey)
@@ -459,12 +466,11 @@ struct Engine {
             slowest = max(slowest, run.elapsed)
             driver.record(
                 outcome(run, deadline: deadline), source: testCase.close(),
-                description: counterexample(of: context), targets: context.targets,
-                labels: context.labels)
+                draws: context.draws, targets: context.targets, labels: context.labels)
         }
         for stale in driver.staleReplays {
             Issue.record(
-                "A saved failure replayed as \(stale.replayed), but it was saved as \(stale.saved). Its generators probably changed, so it no longer tests what failed. It's deleted once it passes; keep it as an explicit example to pin it.",
+                "A saved failure drew \(stale.replayed) when replayed, where it drew \(stale.saved) when saved. Its generators probably changed, so it no longer tests what failed. It's deleted once it passes; keep it as an explicit example to pin it.",
                 severity: .warning, sourceLocation: sourceLocation)
         }
         if let slowWarning = settings.slowWarning, slowest > slowWarning {
@@ -715,11 +721,15 @@ struct Engine {
         }
         let counterexample = counterexample(of: context)
         settings.database?.save(
-            ChoiceSequence(found.choices, counterexample: counterexample), for: databaseKey)
+            ChoiceSequence(found.choices, draws: context.draws), for: databaseKey)
         let falsification = PropertyResult.Falsification(
             counterexample: counterexample, notes: context.notes,
             choices: ChoiceSequence(found.choices))
-        var lines = ["Property falsified after \(driver.examples + 1) examples."]
+        var lines = [
+            driver.replayedSavedFailure
+                ? "Property falsified by a failure saved in an earlier run, replayed from \(settings.database.map { "\($0)" } ?? "the database")."
+                : "Property falsified after \(driver.examples + 1) examples."
+        ]
         lines.append(
             context.description.isEmpty
                 ? "Counterexample:\n\(counterexample)" : "Counterexample: \(counterexample)")

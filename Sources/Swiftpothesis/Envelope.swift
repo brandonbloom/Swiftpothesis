@@ -5,14 +5,15 @@ import Testing
 ///
 /// Files are discardable caches, not durable data: when a file's `format` or `version` doesn't
 /// match what this release writes, it's ignored with a warning rather than migrated. Versions are
-/// calendar dates, bumped whenever any format changes.
+/// calendar dates, bumped whenever any format changes, with a counter for later changes on the
+/// same day.
 ///
 /// ```json
 /// {"format": "swiftpothesis.example", "version": "2026.10.15", "data": {…}}
 /// ```
 struct Envelope<Payload: Codable>: Codable {
     /// The version this release reads and writes.
-    static var currentVersion: String { "2026.10.15" }
+    static var currentVersion: String { "2026.10.15.2" }
 
     /// What kind of file this is, such as `swiftpothesis.example`.
     var format: String
