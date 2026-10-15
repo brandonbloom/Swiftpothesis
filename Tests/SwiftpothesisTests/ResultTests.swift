@@ -3,7 +3,7 @@ import Testing
 
 @testable import Swiftpothesis
 
-@Suite(.propertySettings { $0.database = nil })
+@Suite(.propertyOverrides { $0.database = nil })
 struct ResultTests {
     @Test func passingResult() async {
         let result = await forAll(Int.arbitrary(in: 0...9)) { x in #expect(x < 10) }

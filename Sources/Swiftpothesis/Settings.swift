@@ -3,10 +3,13 @@ import Testing
 
 /// Options that control how a property is tested.
 ///
-/// Settings come from, in increasing precedence: the defaults, the `SWIFTPOTHESIS_SEED`,
-/// `SWIFTPOTHESIS_DERANDOMIZE`, `SWIFTPOTHESIS_MAX_EXAMPLES`, and
-/// `SWIFTPOTHESIS_MAX_SHRINK_ATTEMPTS` environment variables, `.propertySettings(_:)` traits on enclosing suites and tests, and the
-/// `settings` argument of ``forAll(_:examples:id:settings:sourceLocation:isolation:_:)``.
+/// Settings come from, in increasing precedence:
+/// 1. The built-in defaults.
+/// 2. `.propertyDefaults { … }` traits on enclosing suites and tests, outermost first.
+/// 3. The `SWIFTPOTHESIS_SEED`, `SWIFTPOTHESIS_DERANDOMIZE`, `SWIFTPOTHESIS_MAX_EXAMPLES`, and
+///    `SWIFTPOTHESIS_MAX_SHRINK_ATTEMPTS` environment variables.
+/// 4. `.propertyOverrides { … }` traits, outermost first.
+/// 5. The `settings` argument of ``forAll(_:examples:id:settings:sourceLocation:isolation:_:)``.
 ///
 /// TODO: Named profiles, such as a `ci` profile with more examples and no deadline, selected by
 /// `SWIFTPOTHESIS_PROFILE`.
@@ -78,14 +81,23 @@ public struct Settings: Sendable {
     /// Settings with every option at its default, ignoring the environment and traits.
     public static let defaults = Settings()
 
-    /// The settings in effect for the current task: the defaults, overridden by the environment,
-    /// overridden by any `.propertySettings(_:)` traits on the running test.
-    public static var current: Settings { scoped ?? environment }
-
-    @TaskLocal static var scoped: Settings?
-
-    static let environment: Settings = {
+    /// The settings in effect for the current task: the defaults, adjusted by the running test's
+    /// `.propertyDefaults` traits, the environment, and its `.propertyOverrides` traits.
+    public static var current: Settings {
         var settings = Settings()
+        for trait in scopedTraits where trait.precedence == .defaults { trait.transform(&settings) }
+        applyEnvironment(to: &settings)
+        for trait in scopedTraits where trait.precedence == .overrides {
+            trait.transform(&settings)
+        }
+        return settings
+    }
+
+    /// The settings traits applied to the running test, outermost first.
+    @TaskLocal static var scopedTraits: [PropertySettingsTrait] = []
+
+    /// Applies the `SWIFTPOTHESIS_*` environment variables.
+    static func applyEnvironment(to settings: inout Settings) {
         let env = ProcessInfo.processInfo.environment
         if let seed = env["SWIFTPOTHESIS_SEED"].flatMap(UInt64.init) { settings.seed = seed }
         if env["SWIFTPOTHESIS_DERANDOMIZE"] == "1" { settings.derandomize = true }
@@ -95,8 +107,7 @@ public struct Settings: Sendable {
         if let examples = env["SWIFTPOTHESIS_MAX_EXAMPLES"].flatMap(Int.init) {
             settings.maxExamples = examples
         }
-        return settings
-    }()
+    }
 }
 
 /// How a test case's concurrent code is scheduled. See ``Settings/scheduling``.
@@ -149,7 +160,17 @@ public enum HealthCheck: Sendable, CaseIterable {
 // MARK: - Traits
 
 /// A trait that adjusts ``Settings`` for the properties in a test or suite.
+///
+/// Create one with `.propertyDefaults { … }`, which the environment can override, or
+/// `.propertyOverrides { … }`, which overrides the environment.
 public struct PropertySettingsTrait: TestTrait, SuiteTrait, TestScoping {
+    enum Precedence { case defaults, overrides }
+
+    // Identifies the trait, so a suite's trait applies once to each test, even though Swift
+    // Testing scopes recursive suite traits for the suite and for each of its tests.
+    private final class Identity: Sendable {}
+    private let identity = Identity()
+    let precedence: Precedence
     let transform: @Sendable (inout Settings) -> Void
 
     public var isRecursive: Bool { true }
@@ -157,22 +178,44 @@ public struct PropertySettingsTrait: TestTrait, SuiteTrait, TestScoping {
     public func provideScope(
         for test: Test, testCase: Test.Case?, performing function: @Sendable () async throws -> Void
     ) async throws {
-        var settings = Settings.current
-        transform(&settings)
-        try await Settings.$scoped.withValue(settings) { try await function() }
+        guard !Settings.scopedTraits.contains(where: { $0.identity === identity }) else {
+            return try await function()
+        }
+        try await Settings.$scopedTraits.withValue(Settings.scopedTraits + [self]) {
+            try await function()
+        }
     }
 }
 
 extension Trait where Self == PropertySettingsTrait {
-    /// Adjusts the ``Settings`` of every property in a test or suite.
+    /// Sets defaults for every property in a test or suite, which `SWIFTPOTHESIS_*` environment
+    /// variables can override.
+    ///
+    /// Use it for a suite's usual settings, so CI or a soak run can change them without editing
+    /// code:
     ///
     /// ```swift
-    /// @Test(.propertySettings { $0.maxExamples = 1000 })
-    /// func roundTrip() async { … }
+    /// @Suite(.propertyDefaults {
+    ///     $0.maxExamples = 6
+    ///     $0.derandomize = true
+    /// })
+    /// struct SyncTests { … }
     /// ```
-    public static func propertySettings(
+    public static func propertyDefaults(
         _ transform: @escaping @Sendable (inout Settings) -> Void
     ) -> Self {
-        PropertySettingsTrait(transform: transform)
+        PropertySettingsTrait(precedence: .defaults, transform: transform)
+    }
+
+    /// Adjusts the settings of every property in a test or suite, overriding the environment.
+    ///
+    /// ```swift
+    /// @Test(.propertyOverrides { $0.scheduling = .system })
+    /// func lockFreeQueueIsThreadSafe() async { … }
+    /// ```
+    public static func propertyOverrides(
+        _ transform: @escaping @Sendable (inout Settings) -> Void
+    ) -> Self {
+        PropertySettingsTrait(precedence: .overrides, transform: transform)
     }
 }

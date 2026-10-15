@@ -3,9 +3,9 @@ import Testing
 
 @testable import Swiftpothesis
 
-@Suite(.propertySettings { $0.database = nil })
+@Suite(.propertyOverrides { $0.database = nil })
 struct DeadlineTests {
-    @Test(.propertySettings { $0.deadline = .milliseconds(20) })
+    @Test(.propertyOverrides { $0.deadline = .milliseconds(20) })
     func slowExamplesFailAndShrink() async {
         let issues = await failures {
             await forAll(Int.arbitrary(in: 0...100)) { x in
@@ -24,7 +24,7 @@ struct DeadlineTests {
         #expect(x.map { (5...60).contains($0) } == true)
     }
 
-    @Test(.propertySettings { $0.deadline = .milliseconds(10) })
+    @Test(.propertyOverrides { $0.deadline = .milliseconds(10) })
     func uncancellableLoopsAreReportedAfterTheyFinish() async {
         let issues = await failures {
             await forAll(Bool.arbitrary) { slow in
@@ -37,7 +37,7 @@ struct DeadlineTests {
         #expect(issues.contains { $0.contains("Deadline exceeded") })
     }
 
-    @Test(.propertySettings { $0.deadline = .milliseconds(10) })
+    @Test(.propertyOverrides { $0.deadline = .milliseconds(10) })
     func fastReplayIsReportedAsFlaky() async {
         let calls = Mutex(0)
         let issues = await failures {
@@ -55,7 +55,7 @@ struct DeadlineTests {
     }
 
     @Test(
-        .propertySettings {
+        .propertyOverrides {
             $0.timeLimit = .milliseconds(50)
             $0.maxExamples = 10_000
         })

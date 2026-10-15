@@ -35,10 +35,10 @@ struct SubsequenceMachine: SequentialMachine {
     }
 }
 
-@Suite(.propertySettings { $0.database = nil })
+@Suite(.propertyOverrides { $0.database = nil })
 struct ShrinkQualityTests {
     @Test(
-        .propertySettings {
+        .propertyOverrides {
             $0.maxShrinkAttempts = 150
             $0.derandomize = true
         })

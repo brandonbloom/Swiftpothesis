@@ -37,7 +37,7 @@ func retry<C: Clock<Duration>>(clock: C, attempts: Int) async -> Int {
     return tried
 }
 
-@Suite(.propertySettings { $0.database = nil })
+@Suite(.propertyOverrides { $0.database = nil })
 struct SchedulingTests {
     @Test func propertiesRunOnTheControlledExecutor() async {
         await forAll(Bool.arbitrary) { _ in
@@ -136,7 +136,7 @@ struct SchedulingTests {
         #expect(scheduler.escapedJobs > 0)
     }
 
-    @Test(.propertySettings { $0.scheduling = .system })
+    @Test(.propertyOverrides { $0.scheduling = .system })
     func systemSchedulingOptsOut() async {
         await forAll { test in
             #expect(currentThreadName() != ControlledExecutor.threadName)

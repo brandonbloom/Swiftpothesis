@@ -49,7 +49,7 @@ Some code runs outside Swiftpothesis's executor: `@MainActor` code, actors with 
 Because everything runs on one thread, code that blocks a thread waiting for another task, such as with `DispatchSemaphore`, deadlocks. Tests of thread safety that need real parallelism, or Thread Sanitizer, and CPU-heavy parallel properties also need real threads. For these, use Swift's own executors:
 
 ```swift
-@Test(.propertySettings { $0.scheduling = .system })
+@Test(.propertyOverrides { $0.scheduling = .system })
 func lockFreeQueueIsThreadSafe() async { … }
 ```
 

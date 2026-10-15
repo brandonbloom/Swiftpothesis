@@ -3,7 +3,7 @@ import Testing
 
 @testable import Swiftpothesis
 
-@Suite(.propertySettings { $0.database = nil })
+@Suite(.propertyOverrides { $0.database = nil })
 struct PropertyTests {
     @Test func passingPropertyRecordsNoIssues() async {
         await forAll(Int.arbitrary(in: 0...100)) { x in
@@ -140,7 +140,7 @@ func failures(_ body: () async -> Void) async -> [String] {
     return recorded.withLock { $0 }
 }
 
-@Suite(.propertySettings { $0.database = nil })
+@Suite(.propertyOverrides { $0.database = nil })
 struct TestCaseTests {
     @Test func drawsDependOnEarlierResults() async {
         let issues = await failures {

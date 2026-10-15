@@ -3,9 +3,9 @@ import Testing
 
 @testable import Swiftpothesis
 
-@Suite(.propertySettings { $0.database = nil })
+@Suite(.propertyOverrides { $0.database = nil })
 struct SettingsTests {
-    @Test(.propertySettings { $0.derandomize = true })
+    @Test(.propertyOverrides { $0.derandomize = true })
     func derandomizedRunsRepeat() async {
         func run() async -> PropertyResult {
             // An explicit ID gives both runs the same identity, and so the same seed.
@@ -29,7 +29,7 @@ struct SettingsTests {
     }
 
     @Test(
-        .propertySettings {
+        .propertyOverrides {
             $0.slowWarning = .milliseconds(5)
             $0.maxExamples = 5
         })
@@ -44,7 +44,7 @@ struct SettingsTests {
         #expect(warnings.withLock { $0 } == 1)
     }
 
-    @Test(.propertySettings { $0.maxShrinkAttempts = 2 })
+    @Test(.propertyOverrides { $0.maxShrinkAttempts = 2 })
     func runningOutOfShrinkAttemptsIsReported() async {
         let issues = await failures {
             await forAll([Int].arbitrary(Int.arbitrary(in: 0...1000), count: 20...20)) { xs in

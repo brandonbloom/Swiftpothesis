@@ -92,7 +92,7 @@ struct LinearizableStack: LinearizableMachine {
     }
 }
 
-@Suite(.propertySettings { $0.database = nil })
+@Suite(.propertyOverrides { $0.database = nil })
 struct StateMachineTests {
     @Test func findsMinimalFailingSequence() async {
         let issues = await failures {
@@ -188,6 +188,54 @@ struct StateMachineTests {
         let summary = issues.last ?? ""
         #expect(summary.contains("Explicit example \"overflow\" failed."))
         #expect(summary.contains("4. push(1)\n5. pop()\n(finish)"))
+    }
+
+    @Test func machinesCanDrawCommandsLazily() async {
+        // Reads state only for the kind of command it drew, as a file-backed machine would.
+        struct LazyStack: SequentialMachine {
+            func makeState() -> (model: [Int], stack: LeakyStack) { ([], LeakyStack()) }
+            func command(
+                for state: (model: [Int], stack: LeakyStack), drawingFrom source: some ChoiceSource
+            ) async throws -> StackCommand {
+                if try source.draw(Bool.arbitrary), !state.model.isEmpty { return .pop }
+                return .push(try source.draw(Int.arbitrary(in: 0...9)))
+            }
+            func run(
+                _ command: StackCommand, state: inout (model: [Int], stack: LeakyStack)
+            ) async throws {
+                switch command {
+                case .push(let x):
+                    state.model.append(x)
+                    state.stack.push(x)
+                case .pop:
+                    #expect(state.stack.pop() == state.model.popLast())
+                }
+            }
+        }
+        let issues = await failures {
+            await check(LazyStack())
+        }
+        let summary = issues.last ?? ""
+        #expect(summary.contains("5. pop()"))
+        #expect(!summary.contains("6. "))
+    }
+
+    @Test func commandDrawsCanBeScripted() async throws {
+        /// A choice source that replays fixed choices, for testing a machine's own logic.
+        final class Scripted: ChoiceSource {
+            let testCase: TestCase
+            init(_ choices: [UInt64]) { testCase = TestCase(Source(prefix: choices, random: nil)) }
+            func draw<G: Generator>(_ generator: G) throws(Rejection) -> G.Value {
+                try testCase.draw(generator)
+            }
+            func choose(atMost bound: UInt64) throws(Rejection) -> UInt64 {
+                try testCase.choose(atMost: bound)
+            }
+        }
+        let machine = StackMachine()
+        let command = try await machine.command(
+            for: machine.makeState(), drawingFrom: Scripted([1]))
+        #expect(command.description == "pop()")
     }
 
     @Test func linearizableMachinesRunSequentially() async {

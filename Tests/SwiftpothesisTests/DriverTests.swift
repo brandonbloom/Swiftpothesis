@@ -31,8 +31,9 @@ struct DriverTests {
         #expect(driver.original?.failure.origin == "a thrown BugA")
         #expect(driver.found?.failure.origin == "a thrown BugB")
         #expect(driver.found?.choices == [0])
+        // The driver saves the example it left behind; the engine saves the shrunk one, once it
+        // knows how to describe it.
         let saved = Set(database.fetch("key").map(\.choices))
-        #expect(saved.contains([0]))
         #expect(saved.contains { $0.count == 1 && $0[0] >= 10 })
     }
 }

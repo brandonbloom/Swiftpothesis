@@ -56,6 +56,32 @@ public final class TestCase: Sendable {
         }
     }
 
+    /// Opens a span, which ``endSpan(_:)`` closes, around choices drawn in several steps, such
+    /// as a state-machine step that draws as it goes.
+    func beginSpan() -> Int {
+        state.withLock { source in
+            guard source != nil else { preconditionFailure("TestCase used after it ended") }
+            return source!.choices.count
+        }
+    }
+
+    /// Closes a span that ``beginSpan()`` opened.
+    func endSpan(_ start: Int) {
+        state.withLock { source in
+            guard source != nil else { return }
+            source!.spans.append(start..<source!.choices.count)
+        }
+    }
+
+    /// Decides whether a sequence continues. See ``Source/continues(count:bounds:average:)``.
+    func continues(count: Int, bounds: ClosedRange<Int>, average: Double) throws(Rejection) -> Bool
+    {
+        try state.withLock { (source) throws(Rejection) -> Bool in
+            guard source != nil else { preconditionFailure("TestCase used after it ended") }
+            return try source!.continues(count: count, bounds: bounds, average: average)
+        }
+    }
+
     /// Draws the next element of a sequence, or nil to end it, as one span: the choice to
     /// continue, then the element. See ``Source/continues(count:bounds:average:)``.
     func drawElement<G: Generator>(

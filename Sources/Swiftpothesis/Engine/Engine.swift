@@ -109,6 +109,9 @@ struct Driver {
     /// Failing examples that shrinking left behind when it moved to a failure at another origin.
     private(set) var leftBehind: [(choices: [UInt64], failure: Failure)] = []
     private(set) var healthCheck: String?
+    /// Saved examples whose replays describe a different counterexample than when they were
+    /// saved, probably because their generators changed.
+    private(set) var staleReplays: [(saved: String, replayed: String)] = []
     /// Whether shrinking stopped because it ran out of attempts.
     private(set) var shrinkingRanOutOfAttempts = false
     private var state: State
@@ -171,8 +174,9 @@ struct Driver {
             case .done:
                 // Save examples that may fail differently, too, so a rare bug that shrinking moved
                 // away from fails again on the next run rather than waiting to be rediscovered.
-                if let found {
-                    for example in [found] + leftBehind {
+                // The engine saves the shrunk example itself, once it knows its description.
+                if found != nil {
+                    for example in leftBehind {
                         settings.database?.save(ChoiceSequence(example.choices), for: databaseKey)
                     }
                 }
@@ -197,9 +201,14 @@ struct Driver {
     }
 
     /// Records the outcome of the test case run from the last source ``next()`` returned.
-    mutating func record(_ outcome: Outcome, source: Source) {
+    ///
+    /// - Parameter description: How the test case's values were described.
+    mutating func record(_ outcome: Outcome, source: Source, description: String = "") {
         switch state {
         case .reuse(let saved, let index):
+            if let counterexample = saved[index].counterexample, counterexample != description {
+                staleReplays.append((counterexample, description))
+            }
             if case .failed(let failure) = outcome {
                 foundFailure(source, failure)
             } else {
@@ -323,7 +332,14 @@ struct Engine {
             let run = await execute(
                 test, testCase, context, deadline: deadline, capturing: true, isolation: isolation)
             slowest = max(slowest, run.elapsed)
-            driver.record(outcome(run, deadline: deadline), source: testCase.close())
+            driver.record(
+                outcome(run, deadline: deadline), source: testCase.close(),
+                description: counterexample(of: context))
+        }
+        for stale in driver.staleReplays {
+            Issue.record(
+                "A saved failure replayed as \(stale.replayed), but it was saved as \(stale.saved). Its generators probably changed, so it no longer tests what failed. It's deleted once it passes; keep it as an explicit example to pin it.",
+                severity: .warning, sourceLocation: sourceLocation)
         }
         if let slowWarning = settings.slowWarning, slowest > slowWarning {
             let limit =
@@ -450,6 +466,13 @@ struct Engine {
         }
     }
 
+    /// How a test case's values are described in reports: its arguments, or its draws.
+    private func counterexample(of context: PropertyContext) -> String {
+        guard context.description.isEmpty else { return context.description }
+        return context.draws.enumerated().map { "Draw \($0.offset + 1): \($0.element)" }
+            .joined(separator: "\n")
+    }
+
     private func outcome(
         _ run: (issues: [Issue], error: (any Error)?, elapsed: Duration, timedOut: Bool),
         deadline: Duration?
@@ -495,9 +518,9 @@ struct Engine {
                 examples: driver.examples, seed: driver.seed, falsification: nil,
                 requireError: nil)
         }
-        let draws = context.draws.enumerated().map { "Draw \($0.offset + 1): \($0.element)" }
-        let counterexample =
-            context.description.isEmpty ? draws.joined(separator: "\n") : context.description
+        let counterexample = counterexample(of: context)
+        settings.database?.save(
+            ChoiceSequence(found.choices, counterexample: counterexample), for: databaseKey)
         let falsification = PropertyResult.Falsification(
             counterexample: counterexample, notes: context.notes,
             choices: ChoiceSequence(found.choices))

@@ -129,7 +129,7 @@ Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary
 
 ## 7. Settings and time
 
-**Decision.** One `Settings` value struct: `maxExamples` (100), `seed` (random), `derandomize` (off), `maxShrinkAttempts` (1000), `database` (the cache-directory database), `phases` (all), `suppressedHealthChecks` (none), `deadline` (60 s), `slowWarning` (10 s), and `timeLimit` (none). Precedence, lowest to highest: defaults, `SWIFTPOTHESIS_*` environment variables, `.propertySettings { … }` traits (suite, then test), and `forAll`'s `settings:` argument. Explicit code wins over the environment.
+**Decision.** One `Settings` value struct: `maxExamples` (100), `seed` (random), `derandomize` (off), `maxShrinkAttempts` (1000), `database` (the cache-directory database), `phases` (all), `suppressedHealthChecks` (none), `deadline` (60 s), `slowWarning` (10 s), and `timeLimit` (none). Precedence, lowest to highest: built-in defaults, `.propertyDefaults { … }` traits, `SWIFTPOTHESIS_*` environment variables, `.propertyOverrides { … }` traits, and `forAll`'s `settings:` argument; traits apply outermost first, and each applies once per test. Defaults let a suite state its usual settings (FBF's "6 examples, derandomized") while CI and soak runs override them from the environment; overrides are for settings that must hold regardless, such as `scheduling = .system`. The traits keep the `property` prefix because Swift Testing's trait namespace is shared by every library, where a bare `.defaults` would be ambiguous.
 
 **Profiles** (named presets such as `ci`, chosen by `SWIFTPOTHESIS_PROFILE`) are deferred until a second preset is worth naming.
 
@@ -169,6 +169,8 @@ Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary
 - `SequentialMachine`: one `State` value holding the system and any model or replicas; `makeState() async throws`; `commands(for: State)`; `run(_:state: inout State)` performs and checks a command with `#expect`; `skip(_:)` marks a command that doesn't apply; `checkInvariants`, `finish(state:)` (a final settle-and-check step that shrinks and shows as "(finish)"), and `tearDown`. `check(_:steps:averageSteps:…)` runs it.
 - `LinearizableMachine`: separate `Model` and `Sendable` `System`; `apply(_:to:) -> Response`; `next(_:after:response:)`; a pure `postcondition` returning `Bool`, since a linearizability search evaluates it for many candidate orders. `checkLinearizability` will run commands concurrently and search for an explaining order; it's a stub.
 
+**Lazy command draws.** A machine provides commands either as a generator, `commands(for:)`, or by drawing them itself, `command(for:drawingFrom:)`, which defaults to drawing from `commands(for:)`. Drawing lets a file-backed machine draw a command's kind first and read only the state that kind needs, instead of reading everything to build one generator. Generators stay pure; only the method reads state between draws. Everything drawn in one call is one step span. The method takes `some ChoiceSource`, a small protocol `TestCase` conforms to (`draw(_:)`, `choose(atMost:)`), rather than `TestCase` itself, so machines can be unit-tested with scripted choices and other backends remain possible. A machine that draws needn't name `Commands`, which defaults to `NoCommands`.
+
 **Conversion, not subtyping.** A linearizable machine can always run sequentially (apply, then check the postcondition with `#expect`, then advance the model), so `machine.sequential` adapts it to a `SequentialMachine`. The reverse is impossible: a combined `run` can't be evaluated without running the system. So there's one sequential engine, and a parallel engine only linearizable machines can use.
 
 **Why one `State`.** FBF's review: their commands come from the system's state (pending files, visible items), not from a model, and their properties compare replicas with each other and an oracle, with no model at all. A separate model and system made them mirror the file system into the model. Model-based users put both in one struct.
@@ -192,7 +194,8 @@ Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary
 
 **Deferred.**
 - `SWIFTPOTHESIS_REPLAY=<choices>`, to replay a reported failure without its database: one more global input that applies to every property in a run. Pasting the counterexample as an explicit example covers most needs.
-- Detecting stale replays, such as saving each counterexample's description with its choices and flagging a replay that describes differently.
+
+**Stale replays.** Each saved failure stores its counterexample's description with its choices. A replay that describes differently, as after FBF reordered a weighted list, records a warning that the saved failure no longer tests what failed, and suggests pinning it as an explicit example. It misses generator changes that keep descriptions identical, which should be rare. Descriptions don't affect a saved example's identity.
 
 ## 11. Deterministic scheduling
 

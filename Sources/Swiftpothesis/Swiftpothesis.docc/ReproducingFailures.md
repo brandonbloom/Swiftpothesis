@@ -19,7 +19,7 @@ SWIFTPOTHESIS_SEED=13006135410322903826 swift test --filter everyArrayIsShort
 To fix the seed for one test, use a trait:
 
 ```swift
-@Test(.propertySettings { $0.seed = 42 })
+@Test(.propertyOverrides { $0.seed = 42 })
 func deterministic() async { … }
 ```
 

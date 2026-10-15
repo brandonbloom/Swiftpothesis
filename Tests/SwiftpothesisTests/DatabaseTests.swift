@@ -61,6 +61,27 @@ struct DatabaseTests {
         #expect(replayed.last?.contains("Counterexample: 500") == true)
     }
 
+    @Test func staleReplaysAreReported() async {
+        let database = InMemoryDatabase()
+        var settings = Settings.defaults
+        settings.database = database
+        _ = await failures {
+            await forAll(Int.arbitrary(in: 0...1000), id: "changed", settings: settings) { x in
+                #expect(x < 500)
+            }
+        }
+        // The same choices now produce a different value, as after reordering a weighted list.
+        settings.phases = [.reuse]
+        let replayed = await failures {
+            await forAll(
+                Int.arbitrary(in: 0...1000).map { $0 + 1 }, id: "changed", settings: settings
+            ) { x in
+                #expect(x < 500)
+            }
+        }
+        #expect(replayed.contains { $0.contains("replayed as 501, but it was saved as 500") })
+    }
+
     @Test func propertiesAreNumberedWithinATest() {
         let test = "DatabaseTests/\(UUID())"
         #expect(PropertyIndex.next(in: test) == 0)

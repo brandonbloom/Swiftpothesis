@@ -54,8 +54,9 @@ public protocol SequentialMachine {
     /// An operation to perform.
     associatedtype Command: CustomStringConvertible & Sendable
 
-    /// The type of generator for commands.
-    associatedtype Commands: Generator<Command>
+    /// The type of generator for commands. Machines that implement
+    /// ``command(for:drawingFrom:)`` instead of ``commands(for:)`` needn't name it.
+    associatedtype Commands: Generator<Command> = NoCommands<Command>
 
     /// Creates the state for a fresh test case.
     func makeState() async throws -> State
@@ -65,6 +66,29 @@ public protocol SequentialMachine {
     /// The generator may depend on anything in the state, including the real system, such as
     /// which items exist. An error thrown here fails the test case, like one thrown by ``run(_:state:)``.
     func commands(for state: State) async throws -> Commands
+
+    /// Draws the next command, given the current state. Defaults to drawing from
+    /// ``commands(for:)``.
+    ///
+    /// Implement this instead of ``commands(for:)`` when building the full generator is costly,
+    /// such as when it reads files: draw a choice first, and read only what it needs.
+    ///
+    /// ```swift
+    /// func command(for world: SyncWorld, drawingFrom source: some ChoiceSource) async throws -> Command {
+    ///     switch try source.draw(element(of: Kind.allCases)) {
+    ///     case .transfer:
+    ///         let pending = try await world.pendingTransfers()  // Read only when needed.
+    ///         guard !pending.isEmpty else { return .syncAll }
+    ///         return .transfer(try source.draw(element(of: pending)))
+    ///     …
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// Generators stay pure: this method may read state between draws, but each generator it
+    /// draws from depends only on its choices. Everything drawn during one call is one step, which
+    /// the shrinker deletes as a unit.
+    func command(for state: State, drawingFrom source: some ChoiceSource) async throws -> Command
 
     /// Performs a command and checks its results, with `#expect`, `#require`, or by throwing.
     ///
@@ -88,6 +112,12 @@ public protocol SequentialMachine {
 }
 
 extension SequentialMachine {
+    public func command(for state: State, drawingFrom source: some ChoiceSource) async throws
+        -> Command
+    {
+        try source.draw(try await commands(for: state))
+    }
+
     public func checkInvariants(state: State) async throws {}
     public func finish(state: inout State) async throws {}
     public func tearDown(_ state: State) async {}
@@ -95,6 +125,19 @@ extension SequentialMachine {
     /// Skips the command being run, because it doesn't apply in the current state.
     public func skip(_ reason: String? = nil) throws -> Never {
         throw SkippedCommand(reason: reason)
+    }
+}
+
+extension SequentialMachine where Commands == NoCommands<Command> {
+    public func commands(for state: State) -> NoCommands<Command> { NoCommands() }
+}
+
+/// The ``SequentialMachine/Commands`` of a machine that draws each command with
+/// ``SequentialMachine/command(for:drawingFrom:)`` instead of providing a generator.
+public struct NoCommands<Command: Sendable>: Generator {
+    public func generate(from source: inout Source) throws(Rejection) -> Command {
+        preconditionFailure(
+            "A SequentialMachine must implement commands(for:) or command(for:drawingFrom:)")
     }
 }
 
@@ -152,11 +195,14 @@ public func check<M: SequentialMachine>(
     ) {
         testCase, context in
         try await runSequence(machine, context: context) { state in
-            // Each step is one span, so the shrinker deletes whole steps, and the steps after a
-            // deleted one are regenerated against the new state.
-            try testCase.drawElement(
-                try await machine.commands(for: state), count: context.steps, bounds: steps,
-                average: averageSteps)
+            // Each step is one span, its continue choice and everything it draws, so the shrinker
+            // deletes whole steps, and the steps after a deleted one regenerate against the new
+            // state.
+            let start = testCase.beginSpan()
+            defer { testCase.endSpan(start) }
+            guard try testCase.continues(count: context.steps, bounds: steps, average: averageSteps)
+            else { return nil }
+            return try await machine.command(for: state, drawingFrom: testCase)
         }
     }
 }

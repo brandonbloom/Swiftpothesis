@@ -25,9 +25,21 @@ public struct ChoiceSequence: Hashable, Sendable, Codable, CustomStringConvertib
     /// The choices, in the order they were drawn.
     public var choices: [UInt64]
 
-    public init(_ choices: [UInt64]) {
+    /// How the counterexample these choices produced was described when they were saved.
+    ///
+    /// Replaying the choices after a generator changes can produce a different value. Comparing
+    /// descriptions catches that, so a stale saved example is reported rather than silently
+    /// testing something else. It doesn't affect equality.
+    public var counterexample: String?
+
+    public init(_ choices: [UInt64], counterexample: String? = nil) {
         self.choices = choices
+        self.counterexample = counterexample
     }
+
+    public static func == (a: ChoiceSequence, b: ChoiceSequence) -> Bool { a.choices == b.choices }
+
+    public func hash(into hasher: inout Hasher) { hasher.combine(choices) }
 
     public var description: String {
         choices.map(String.init).joined(separator: " ")
@@ -45,7 +57,7 @@ public final class InMemoryDatabase: ExampleDatabase {
     }
 
     public func save(_ value: ChoiceSequence, for key: String) {
-        storage.withLock { _ = $0[key, default: []].insert(value) }
+        storage.withLock { _ = $0[key, default: []].update(with: value) }
     }
 
     public func delete(_ value: ChoiceSequence, for key: String) {
