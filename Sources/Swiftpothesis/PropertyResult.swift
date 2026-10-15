@@ -1,6 +1,6 @@
 /// The outcome of testing a property.
 ///
-/// ``forAll(_:settings:sourceLocation:isolation:_:)`` has already reported any failure through
+/// ``forAll(_:id:settings:sourceLocation:isolation:_:)`` has already reported any failure through
 /// Swift Testing by the time it returns its result, so most tests ignore the result. Use it to
 /// stop a test when a property fails, as `#require` does:
 ///

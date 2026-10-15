@@ -23,6 +23,8 @@ import Testing
 ///
 /// - Parameters:
 ///   - generators: The generators for the property's arguments.
+///   - id: Identifies this property within its test, so its saved failures replay. Defaults
+///     to the property's position among the test's properties.
 ///   - settings: Options for this property. Defaults to the settings of the running test.
 ///   - sourceLocation: Where to attribute the summary issue.
 ///   - isolation: The actor the property runs on. Defaults to the caller's.
@@ -32,13 +34,14 @@ import Testing
 @discardableResult
 public func forAll<each G: Generator>(
     _ generators: repeat each G,
+    id: String? = nil,
     settings: Settings = .current,
     sourceLocation: SourceLocation = #_sourceLocation,
     isolation: isolated (any Actor)? = #isolation,
     _ property: (repeat (each G).Value) async throws -> Void
 ) async -> PropertyResult {
     await check(
-        zip(repeat each generators), settings: settings, sourceLocation: sourceLocation,
+        zip(repeat each generators), id: id, settings: settings, sourceLocation: sourceLocation,
         isolation: isolation
     ) { (values: (repeat (each G).Value)) in
         try await property(repeat each values)
@@ -55,16 +58,17 @@ public func forAll<each G: Generator>(
 /// }
 /// ```
 ///
-/// See ``forAll(_:settings:sourceLocation:isolation:_:)`` for details.
+/// See ``forAll(_:id:settings:sourceLocation:isolation:_:)`` for details.
 @discardableResult
 public func forAll<each T: Arbitrary>(
+    id: String? = nil,
     settings: Settings = .current,
     sourceLocation: SourceLocation = #_sourceLocation,
     isolation: isolated (any Actor)? = #isolation,
     _ property: (repeat each T) async throws -> Void
 ) async -> PropertyResult {
     await check(
-        zip(repeat (each T).arbitrary), settings: settings, sourceLocation: sourceLocation,
+        zip(repeat (each T).arbitrary), id: id, settings: settings, sourceLocation: sourceLocation,
         isolation: isolation
     ) { (values: (repeat each T)) in
         try await property(repeat each values)
@@ -86,15 +90,18 @@ public func forAll<each T: Arbitrary>(
 /// }
 /// ```
 ///
-/// See ``forAll(_:settings:sourceLocation:isolation:_:)`` for details.
+/// See ``forAll(_:id:settings:sourceLocation:isolation:_:)`` for details.
 @discardableResult
 public func forAll(
+    id: String? = nil,
     settings: Settings = .current,
     sourceLocation: SourceLocation = #_sourceLocation,
     isolation: isolated (any Actor)? = #isolation,
     _ property: (TestCase) async throws -> Void
 ) async -> PropertyResult {
-    await Engine(settings: settings, sourceLocation: sourceLocation).run(isolation: isolation) {
+    await Engine(id: id, settings: settings, sourceLocation: sourceLocation).run(
+        isolation: isolation
+    ) {
         testCase, _ in
         try await property(testCase)
     }
@@ -140,12 +147,15 @@ public func target(_ score: Double, label: String = "") {
 // which crashes at run time ("freed pointer was not the last allocation") as of Swift 6.4.
 private func check<G: Generator>(
     _ generator: G,
+    id: String?,
     settings: Settings,
     sourceLocation: SourceLocation,
     isolation: isolated (any Actor)?,
     _ property: (G.Value) async throws -> Void
 ) async -> PropertyResult {
-    await Engine(settings: settings, sourceLocation: sourceLocation).run(isolation: isolation) {
+    await Engine(id: id, settings: settings, sourceLocation: sourceLocation).run(
+        isolation: isolation
+    ) {
         testCase, context in
         let value = try testCase.draw(generator)
         context.description = String(reflecting: value)

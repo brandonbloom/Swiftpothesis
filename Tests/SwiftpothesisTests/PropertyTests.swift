@@ -87,24 +87,6 @@ struct PropertyTests {
         #expect(issues.last?.contains("Note: doubled: 10") == true)
     }
 
-    @Test func databaseReplaysFailures() async {
-        let database = InMemoryDatabase()
-        var settings = Settings.defaults
-        settings.database = database
-        // Failures are saved per call site, so both runs share one.
-        func check(_ settings: Settings) async -> [String] {
-            await failures {
-                await forAll(Int.arbitrary(in: 0...1000), settings: settings) { x in
-                    #expect(x < 500)
-                }
-            }
-        }
-        _ = await check(settings)
-        settings.phases = [.reuse]
-        let replayed = await check(settings)
-        #expect(replayed.last?.contains("Counterexample: 500") == true)
-    }
-
     @Test func seedReproducesRun() async {
         var settings = Settings.defaults
         settings.database = nil

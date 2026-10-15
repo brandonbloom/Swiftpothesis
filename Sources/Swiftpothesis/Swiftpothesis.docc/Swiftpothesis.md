@@ -26,15 +26,15 @@ Swiftpothesis shrinks the way [Hypothesis](https://hypothesis.readthedocs.io) do
 ### Essentials
 
 - <doc:GettingStarted>
-- ``forAll(_:settings:sourceLocation:isolation:_:)``
-- ``forAll(settings:sourceLocation:isolation:_:)-(_,_,_,(T)->Void)``
+- ``forAll(_:id:settings:sourceLocation:isolation:_:)``
+- ``forAll(id:settings:sourceLocation:isolation:_:)-(_,_,_,_,(T)->Void)``
 - ``PropertyResult``
 - ``assume(_:_:)``
 - ``note(_:)``
 
 ### Drawing While a Property Runs
 
-- ``forAll(settings:sourceLocation:isolation:_:)-(_,_,_,(TestCase)->Void)``
+- ``forAll(id:settings:sourceLocation:isolation:_:)-(_,_,_,_,(TestCase)->Void)``
 - ``TestCase``
 
 ### Generators
@@ -51,7 +51,7 @@ Swiftpothesis shrinks the way [Hypothesis](https://hypothesis.readthedocs.io) do
 
 - <doc:StatefulTesting>
 - ``StateMachine``
-- ``check(_:steps:settings:sourceLocation:isolation:)``
+- ``check(_:steps:id:settings:sourceLocation:isolation:)``
 - ``Scheduler``
 
 ### Reproducing Failures

@@ -55,9 +55,9 @@ public final class InMemoryDatabase: ExampleDatabase {
 
 /// An ``ExampleDatabase`` that keeps examples as files in a directory.
 ///
-/// Each key is a subdirectory named by a hash of the key, and each value is a file in it. The
-/// layout merges cleanly when the directory is shared between machines or checked into source
-/// control.
+/// Each key is a subdirectory named by a hash of the key, and each value is a JSON file in it,
+/// in an envelope that identifies its format and version. Files from another version are ignored
+/// with a warning: the database is a cache, safe to delete at any time.
 public struct DirectoryDatabase: ExampleDatabase {
     /// The directory holding the database.
     public var url: URL
@@ -79,17 +79,17 @@ public struct DirectoryDatabase: ExampleDatabase {
             (try? FileManager.default.contentsOfDirectory(
                 at: directory, includingPropertiesForKeys: nil)) ?? []
         return files.compactMap { file in
-            guard let text = try? String(contentsOf: file, encoding: .utf8) else { return nil }
-            let choices = text.split(separator: " ").compactMap { UInt64($0) }
-            return ChoiceSequence(choices)
+            guard let data = try? Data(contentsOf: file) else { return nil }
+            return Envelope<ChoiceSequence>.decode(
+                Self.format, from: data, describing: file.path(percentEncoded: false))
         }
     }
 
     public func save(_ value: ChoiceSequence, for key: String) {
         let directory = directory(for: key)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? value.description.write(
-            to: directory.appending(path: name(for: value)), atomically: true, encoding: .utf8)
+        guard let data = try? Envelope(format: Self.format, data: value).encoded() else { return }
+        try? data.write(to: directory.appending(path: name(for: value)), options: .atomic)
     }
 
     public func delete(_ value: ChoiceSequence, for key: String) {
@@ -102,8 +102,10 @@ public struct DirectoryDatabase: ExampleDatabase {
     }
 
     private func name(for value: ChoiceSequence) -> String {
-        stableHash(value.description)
+        stableHash(value.description) + ".json"
     }
+
+    private static let format = "swiftpothesis.example"
 }
 
 // FNV-1a, because `Hasher` is randomly seeded per process.

@@ -5,7 +5,7 @@ import Testing
 ///
 /// Settings come from, in increasing precedence: the defaults, the `SWIFTPOTHESIS_*` environment
 /// variables, `.propertySettings(_:)` traits on enclosing suites and tests, and the
-/// `settings` argument of ``forAll(_:settings:sourceLocation:isolation:_:)``.
+/// `settings` argument of ``forAll(_:id:settings:sourceLocation:isolation:_:)``.
 ///
 /// TODO: Named profiles, such as a `ci` profile with more examples and no deadline, selected by
 /// `SWIFTPOTHESIS_PROFILE`.

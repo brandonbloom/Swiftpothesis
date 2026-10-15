@@ -51,6 +51,19 @@ func format(_ duration: Duration) -> String {
     return "\(Int(milliseconds.rounded())) ms"
 }
 
+/// Counts the properties each test has run, to identify them in the database.
+enum PropertyIndex {
+    private static let counts = Mutex<[String: Int]>([:])
+
+    /// The index of the next property in `test`, counting from zero.
+    static func next(in test: String) -> Int {
+        counts.withLock { counts in
+            defer { counts[test, default: 0] += 1 }
+            return counts[test, default: 0]
+        }
+    }
+}
+
 /// Per-test-case state that ``note(_:)``, ``label(_:)``, and ``target(_:label:)`` write to.
 final class PropertyContext: @unchecked Sendable {
     /// The generated values, as shown in a failure report.
@@ -207,12 +220,20 @@ struct Driver {
 struct Engine {
     let settings: Settings
     let sourceLocation: SourceLocation
+    /// The key under which this property's failures are saved.
+    private let databaseKey: String
 
-    /// The key under which this property's failures are saved: the running test's ID and the
-    /// call site.
-    private var databaseKey: String {
-        let test = Test.current.map { "\($0.id)" } ?? ""
-        return "\(test)|\(sourceLocation.fileID):\(sourceLocation.line)"
+    /// Creates an engine for one property.
+    ///
+    /// - Parameter id: Identifies the property within its test, for the database. Nil uses the
+    ///   property's position among the test's properties, which survives edits elsewhere in the
+    ///   file but not reordering the test's properties.
+    init(id: String?, settings: Settings, sourceLocation: SourceLocation) {
+        self.settings = settings
+        self.sourceLocation = sourceLocation
+        // TODO: Distinguish the cases of a parameterized test; `Test.Case` has no public ID.
+        let test = Test.current.map { "\($0.id)" } ?? sourceLocation.fileID
+        databaseKey = "\(test)#\(id ?? String(PropertyIndex.next(in: test)))"
     }
 
     func run(isolation: isolated (any Actor)?, _ test: TestFunction) async -> PropertyResult {

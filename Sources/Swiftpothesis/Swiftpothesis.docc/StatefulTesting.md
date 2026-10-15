@@ -4,7 +4,7 @@ Test a system against a simpler model of it, under generated sequences of comman
 
 ## Overview
 
-Some bugs need a particular sequence of operations, not a particular value. A ``StateMachine`` describes the operations a system supports, as commands, and a model that predicts how the system responds. ``check(_:steps:settings:sourceLocation:isolation:)`` generates command sequences, runs them against the system and the model, and shrinks any failing sequence to the fewest, simplest commands.
+Some bugs need a particular sequence of operations, not a particular value. A ``StateMachine`` describes the operations a system supports, as commands, and a model that predicts how the system responds. ``check(_:steps:id:settings:sourceLocation:isolation:)`` generates command sequences, runs them against the system and the model, and shrinks any failing sequence to the fewest, simplest commands.
 
 You may not need a state machine. If the operations don't depend on each other's results, a property over an array of commands is simpler.
 
@@ -58,5 +58,5 @@ Counterexample:
 ## Topics
 
 - ``StateMachine``
-- ``check(_:steps:settings:sourceLocation:isolation:)``
+- ``check(_:steps:id:settings:sourceLocation:isolation:)``
 - ``Scheduler``
