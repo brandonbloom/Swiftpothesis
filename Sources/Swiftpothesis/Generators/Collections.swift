@@ -26,8 +26,7 @@ extension Set where Element: Sendable {
     public static func arbitrary(
         _ element: some Generator<Element>, count: ClosedRange<Int> = 0...100
     ) -> some Generator<Set<Element>> {
-        // TODO: Draw distinct elements, so duplicates can't leave a set below `count.lowerBound`.
-        Generators.Arrays(element: element, count: count, averageCount: nil).map(Set.init)
+        Generators.Sets(element: element, count: count)
     }
 }
 
@@ -95,6 +94,34 @@ extension Generators {
             }) {
                 result.append(value)
             }
+            return result
+        }
+    }
+
+    /// Sets drawn element by element, retrying duplicates, so they reach their minimum count.
+    struct Sets<Element: Generator>: Generator where Element.Value: Hashable {
+        let element: Element
+        let count: ClosedRange<Int>
+
+        func generate(from source: inout Source) throws(Rejection) -> Set<Element.Value> {
+            let average = Swift.min(
+                Double(Swift.max(count.lowerBound * 2, count.lowerBound + 5)),
+                Double(count.lowerBound + count.upperBound) / 2)
+            var result = Set<Element.Value>()
+            // Each element, with its continue choice and any duplicates drawn before it, is one
+            // span, so the shrinker deletes elements whole.
+            while try source.span({ (source) throws(Rejection) -> Bool in
+                guard try source.continues(count: result.count, bounds: count, average: average)
+                else { return false }
+                for _ in 0..<10 {
+                    if result.insert(try element.generate(from: &source)).inserted { return true }
+                }
+                // The elements are mostly taken: stop, unless the set is still too small.
+                guard result.count >= count.lowerBound else {
+                    throw Rejection(.filtered, comment: "too few distinct elements for the set")
+                }
+                return false
+            }) {}
             return result
         }
     }

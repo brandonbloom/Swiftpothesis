@@ -139,7 +139,17 @@ public struct VirtualClock: Clock, Sendable {
         /// Whether a controlled executor advances the clock. Otherwise sleeps return at once.
         var isDriven = false
         var now = Instant(offset: .zero)
-        var waiters: [(deadline: Instant, continuation: CheckedContinuation<Void, any Error>)] = []
+        var waiters:
+            [(id: Int, deadline: Instant, continuation: CheckedContinuation<Void, any Error>)] = []
+        var nextID = 0
+
+        /// A new identifier for a sleeper, so cancellation can find it.
+        func makeID() -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            nextID += 1
+            return nextID
+        }
     }
 
     let state = State()
@@ -155,17 +165,29 @@ public struct VirtualClock: Clock, Sendable {
     public var minimumResolution: Duration { .zero }
 
     public func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
-        // TODO: Cancellation.
-        try await withCheckedThrowingContinuation { continuation in
-            state.lock.lock()
-            if !state.isDriven, deadline > state.now { state.now = deadline }
-            if deadline <= state.now {
-                state.lock.unlock()
-                continuation.resume()
-            } else {
-                state.waiters.append((deadline, continuation))
-                state.lock.unlock()
+        try Task.checkCancellation()
+        let id = state.makeID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                state.lock.lock()
+                if !state.isDriven, deadline > state.now { state.now = deadline }
+                if deadline <= state.now {
+                    state.lock.unlock()
+                    continuation.resume()
+                } else if Task.isCancelled {
+                    state.lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    state.waiters.append((id, deadline, continuation))
+                    state.lock.unlock()
+                }
             }
+        } onCancel: {
+            state.lock.lock()
+            let index = state.waiters.firstIndex { $0.id == id }
+            let waiter = index.map { state.waiters.remove(at: $0) }
+            state.lock.unlock()
+            waiter?.continuation.resume(throwing: CancellationError())
         }
     }
 

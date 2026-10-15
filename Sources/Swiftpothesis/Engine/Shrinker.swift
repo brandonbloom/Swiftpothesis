@@ -14,7 +14,11 @@
 ///    steps, trying the largest run first and halving on failure.
 /// 2. Deletes single spans, largest first, which reaches nested structure.
 /// 3. Deletes and zeroes small chunks of raw choices.
-/// 4. Binary-searches each choice toward zero.
+/// 4. Lowers each choice to zero, raising the next to its maximum and zeroing the rest. A choice
+///    often selects
+///    how the next is interpreted, such as a value's kind, so lowering it alone tends to pass;
+///    raising the next finds a failing value of the simpler kind, which step 5 then minimizes.
+/// 5. Binary-searches each choice toward zero.
 ///
 /// Deleting a span shifts the choices after it, so later values and steps are regenerated from
 /// the remaining choices, against the new state. Rounds repeat until one makes no progress or the
@@ -45,6 +49,8 @@ struct Shrinker {
         case deleteChunks(sizeIndex: Int, start: Int?)
         /// Zeroes `zeroSizes[sizeIndex]` choices at `start`, moving toward the end.
         case zero(sizeIndex: Int, start: Int)
+        /// Zeroes the choice at `index` and raises the one after it to its maximum.
+        case lowerAndRaiseNext(index: Int)
         /// Binary-searches the choice at `index` for its smallest failing value in `low...high`.
         case minimize(index: Int, low: UInt64, high: UInt64)
         case finished
@@ -192,6 +198,15 @@ struct Shrinker {
             var candidate = choices
             for i in start..<start + size { candidate[i] = 0 }
             return candidate
+        case .lowerAndRaiseNext(let index):
+            guard index + 1 < choices.count, choices[index] > 0 else { return nil }
+            var candidate = choices
+            candidate[index] = 0
+            // Replay clamps the maximum to the next choice's bound. Later choices are zeroed:
+            // under the new interpretation, their old values rarely mean anything.
+            candidate[index + 1] = .max
+            for later in (index + 2)..<candidate.count { candidate[later] = 0 }
+            return candidate
         case .minimize(let index, let low, let high):
             guard index < choices.count, low < high else { return nil }
             var candidate = choices
@@ -233,6 +248,12 @@ struct Shrinker {
                 pass = .zero(sizeIndex: sizeIndex, start: start + 1)
             } else if sizeIndex + 1 < Self.zeroSizes.count {
                 pass = .zero(sizeIndex: sizeIndex + 1, start: 0)
+            } else {
+                pass = .lowerAndRaiseNext(index: 0)
+            }
+        case .lowerAndRaiseNext(let index):
+            if index + 2 < choices.count {
+                pass = .lowerAndRaiseNext(index: index + 1)
             } else {
                 startMinimizing(at: 0)
             }

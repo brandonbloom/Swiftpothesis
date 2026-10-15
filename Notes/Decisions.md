@@ -18,7 +18,7 @@ Contributor-facing notes on why Swiftpothesis is built the way it is. User docum
 - Generators must encode choices so that smaller means simpler. Built-in generators do; custom `Generator` conformances must.
 - A saved sequence reproduces only while its generators draw choices in the same order.
 
-**Shrink passes.** Following Hypothesis, structure comes first. Each round deletes runs of adjacent sibling spans (array elements, state-machine steps), largest run first and halving on failure; then single spans, largest first; then small chunks of raw choices; then zeroes chunks; then binary-searches each choice toward zero. Each array element and each machine step is one span that includes its continue choice, so deleting a span removes a whole element or step, and the steps after it regenerate against the new state. On FBF-shaped histories (a bug needing three particular commands among ~30) this reaches the minimal 3 steps in 150 attempts, where raw-chunk passes alone stopped at 16.
+**Shrink passes.** Following Hypothesis, structure comes first. Each round deletes runs of adjacent sibling spans (array elements, state-machine steps), largest run first and halving on failure; then single spans, largest first; then small chunks of raw choices; then zeroes chunks; then lowers each choice to zero while raising the next to its maximum and zeroing the rest; then binary-searches each choice toward zero. The lower-and-raise pass handles choices that select how later ones are read, such as a value's kind: lowering the kind alone usually passes, while raising the next choice finds a failing value of the simpler kind for the binary search to minimize. Each array element and each machine step is one span that includes its continue choice, so deleting a span removes a whole element or step, and the steps after it regenerate against the new state. On FBF-shaped histories (a bug needing three particular commands among ~30) this reaches the minimal 3 steps in 150 attempts, where raw-chunk passes alone stopped at 16.
 
 **Determinism.** Shrinking must be deterministic: the same failing sequence and settings always shrink to the same result. Shrink passes may use randomness only if it is seeded deterministically from the run.
 
@@ -31,6 +31,8 @@ Contributor-facing notes on why Swiftpothesis is built the way it is. User docum
 ## 2. Choice encoding
 
 **Decision.** One primitive, `Source.choose(atMost:) -> UInt64`, where smaller is simpler. Generators layer on it: integers choose a sign and a distance from their shrink target; booleans choose from `0...1`; arrays choose "continue?" (0 stops) before each element span; `oneOf` and `element(of:)` choose an index; strings choose a scalar class, then a scalar. `Source.draw(_:)` draws a value from another generator.
+
+**Encodings.** Integers draw their distance from the shrink target first, then a sign only when both sides allow that distance, so zero takes one choice and raising the choice after a kind raises a size. Doubles draw a kind, from simplest: an integer, a multiple of a power of two (halves through 1/1024), a uniform value across the range, an edge (zero, the smallest magnitudes, or the range's ends and their neighbors), or a special (NaN, ±infinity, when allowed). Every kind but integers takes at least three choices, because shrinking prefers fewer choices: otherwise a short encoding of an edge would count as simpler than an integer. Hypothesis's lexicographic float encoding, which also orders values within kinds, remains a TODO. Sets draw distinct elements, retrying duplicates, so they reach their minimum size.
 
 **Modes.** Generating chooses randomly, biased toward 0, the bound, and small values. Replaying clamps recorded choices to the current bound, and chooses 0 past the end of the recording. More than 8,192 choices in one test case is an overrun, which discards it.
 
@@ -212,6 +214,18 @@ Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary
 **Platforms.** Task names need the 26 runtimes, so the package targets macOS, iOS, tvOS, watchOS, and visionOS 26: the last major release before the current one.
 
 **Replaced.** The earlier `Scheduler` design, after fast-check's `fc.scheduler()`, with explicitly wrapped operations and a `releaseAll()` that would have needed a timing heuristic to detect quiescence.
+
+## 12. Phases and reports
+
+**Target.** After generating, for each `target(_:label:)` label, the engine hill-climbs its best example with up to half again `maxExamples` test cases, after Hypothesis's optimiser: it jumps a choice to its maximum (which lengthens collections and maximizes values), then raises it by doubling steps while the score improves, then moves to another choice; a quarter of attempts are random mutations. Failures found while targeting shrink like any other. Best scores appear in `PropertyResult.targets`. On a property failing only for sums of ten values near their maximum, it found the failure in about 7 of 10 seeds, versus none without targeting.
+
+**Explain.** After shrinking a `forAll` with several arguments, each argument is replaced with random values 20 times, splicing fresh choices into its span. If every try fails with the same origin, the report says the failure doesn't depend on it. Twenty tries keep false claims rare when random values usually, but not always, still fail.
+
+**Statistics.** `label(_:)` counts appear in `PropertyResult.labels` and in a "Property statistics" attachment on the test.
+
+**Health checks.** `filterTooMuch`, and `dataTooLarge` when more than half as many test cases as `maxExamples` overrun the choice limit. `tooSlow` was dropped: `slowWarning` covers slowness. Continue choices are 16 bits, so averages up to about 65,000 elements are honored.
+
+**Virtual time.** Sleeps on `test.clock` are cancellable, waking with `CancellationError`.
 
 ## Versioning
 
