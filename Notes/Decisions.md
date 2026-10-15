@@ -141,6 +141,23 @@ Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary
 
 **Alternatives.** Deadlines as warnings rather than failures (easy to ignore); deadlines off by default (slow inputs are often real bugs); limiting shrinking by time rather than attempts (makes results depend on machine speed).
 
+## 8. The failure database
+
+**Decision.** The database saves choice sequences: every shrunk failure, plus examples shrinking moved away from (decision 6). The next run replays them before generating, and deletes any that pass. It's a discardable cache; losing it only means failures must be found again.
+
+**Key.** The test file's absolute path, the test's ID, and the property's index among the test's properties, or an explicit `id:` passed to `forAll` or `check`. Indexes survive edits elsewhere in the file, unlike line numbers; an explicit ID also survives reordering. The path keeps separate checkouts apart. Cases of a parameterized test share a key, since `Test.Case` has no public ID.
+
+**Location.** The user's cache directory (`URL.cachesDirectory`: `~/Library/Caches/Swiftpothesis/examples` on Apple platforms, `$XDG_CACHE_HOME` or `~/.cache` on Linux), overridable with `SWIFTPOTHESIS_DATABASE`. One mechanism that works for `swift test`, Xcode, simulators, and devices, and needs no `.gitignore` entry. Worktrees don't share failures, so a fix in one can't delete another's saved failure; set `SWIFTPOTHESIS_DATABASE` to share deliberately.
+
+**Alternatives.**
+- The current directory: wrong under Xcode, and every consumer must ignore it.
+- `.build/`, found by walking up to `Package.swift`: cleaned with the build, but needs a second mechanism for projects without a package manifest, and can't work on devices.
+- Checking the database in: opaque, churning files. Not recommended.
+
+**Formats.** Every file Swiftpothesis writes is JSON in an envelope: `{"format": …, "version": …, "data": …}`. Versions are calendar dates (`2026.10.15`), bumped whenever any format changes. Files from another format or version are ignored with a warning, never migrated.
+
+**Later.** Pruning entries by age, and a read-only database of failures downloaded from CI.
+
 ## Versioning
 
 Swiftpothesis follows [StableVer](https://github.com/brandonbloom/stablever). Until 1.0, every feature is alpha: subject to breaking changes at any time.

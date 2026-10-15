@@ -66,12 +66,16 @@ public struct DirectoryDatabase: ExampleDatabase {
         self.url = url
     }
 
-    /// The database at `$SWIFTPOTHESIS_DATABASE`, or `.swiftpothesis/examples` in the current
-    /// directory, which `swift test` sets to the package root.
+    /// The database at `$SWIFTPOTHESIS_DATABASE`, or else in the user's cache directory:
+    /// `~/Library/Caches/Swiftpothesis/examples` on Apple platforms, and under `$XDG_CACHE_HOME`
+    /// or `~/.cache` on Linux.
+    ///
+    /// Tests on a simulator or device use that platform's cache directory, so their failures are
+    /// saved apart from the Mac's.
     public static let `default` = DirectoryDatabase(
         url: ProcessInfo.processInfo.environment["SWIFTPOTHESIS_DATABASE"].map {
             URL(filePath: $0)
-        } ?? URL(filePath: ".swiftpothesis/examples"))
+        } ?? URL.cachesDirectory.appending(path: "Swiftpothesis/examples"))
 
     public func fetch(_ key: String) -> [ChoiceSequence] {
         let directory = directory(for: key)

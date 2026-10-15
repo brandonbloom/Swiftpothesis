@@ -225,6 +225,9 @@ struct Engine {
 
     /// Creates an engine for one property.
     ///
+    /// The database key combines the test file's path, the test's ID, and the property's ID. The
+    /// path keeps separate checkouts, such as git worktrees, from replaying each other's failures.
+    ///
     /// - Parameter id: Identifies the property within its test, for the database. Nil uses the
     ///   property's position among the test's properties, which survives edits elsewhere in the
     ///   file but not reordering the test's properties.
@@ -233,7 +236,8 @@ struct Engine {
         self.sourceLocation = sourceLocation
         // TODO: Distinguish the cases of a parameterized test; `Test.Case` has no public ID.
         let test = Test.current.map { "\($0.id)" } ?? sourceLocation.fileID
-        databaseKey = "\(test)#\(id ?? String(PropertyIndex.next(in: test)))"
+        databaseKey =
+            "\(sourceLocation.filePath)|\(test)#\(id ?? String(PropertyIndex.next(in: test)))"
     }
 
     func run(isolation: isolated (any Actor)?, _ test: TestFunction) async -> PropertyResult {

@@ -6,7 +6,7 @@ Replay a failure on the next run, on another machine, or from a seed.
 
 Swiftpothesis saves the choices behind every shrunk failure in an ``ExampleDatabase``. The next run of the property replays saved failures before generating anything new, so a failure keeps failing until it's fixed, and then the database forgets it.
 
-The default database, ``DirectoryDatabase/default``, lives in `.swiftpothesis/examples` at the package root. Add `.swiftpothesis/` to `.gitignore`, or commit it to share failures with collaborators and CI. Set `SWIFTPOTHESIS_DATABASE` to move it.
+The default database, ``DirectoryDatabase/default``, lives in the user's cache directory, outside your repository, so there's nothing to ignore. Each checkout of a package, such as each git worktree, keeps its own failures. The database is a cache: deleting it only means saved failures must be found again. Set `SWIFTPOTHESIS_DATABASE` to move it, such as to share one database between checkouts.
 
 ## Seeds
 
