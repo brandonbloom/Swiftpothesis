@@ -12,14 +12,13 @@
 /// generator's own constraints.
 ///
 /// Generators for a type's values come from the type: ``Arbitrary/arbitrary`` for any value, and
-/// static `arbitrary(…)` methods for narrower ones. Generators that combine others, such as
-/// ``Generator/oneOf(_:_:)`` and ``Generator/constant(_:)``, are static members of this protocol,
-/// spelled with a leading dot where a generator is expected:
+/// static `arbitrary(…)` methods for narrower ones. Generators that combine others are free
+/// functions, such as ``oneOf(_:_:)``, ``weighted(_:_:)``, ``constant(_:)``, and ``zip(_:)``:
 ///
 /// ```swift
 /// let digits = Int.arbitrary(in: 0...9)
 /// let pairs = zip(digits, String.arbitrary)
-/// let sentinel: some Generator<Int> = .oneOf(digits, .constant(-1))
+/// let sentinel = oneOf(digits, constant(-1))
 /// ```
 ///
 /// To write a generator that the combinators can't express, conform a type to this protocol and

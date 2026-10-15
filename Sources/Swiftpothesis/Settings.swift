@@ -57,6 +57,9 @@ public struct Settings: Sendable {
     /// test case, so slow properties are noticed well before they reach ``deadline``.
     public var slowWarning: Duration? = .seconds(10)
 
+    /// How a test case's concurrent code is scheduled.
+    public var scheduling: Scheduling = .deterministic
+
     /// The longest the ``Phase/generate`` phase may take. Nil, the default, means no limit.
     ///
     /// When the time is up, generation stops and the property passes with fewer than
@@ -94,6 +97,26 @@ public struct Settings: Sendable {
         }
         return settings
     }()
+}
+
+/// How a test case's concurrent code is scheduled. See ``Settings/scheduling``.
+public enum Scheduling: Sendable {
+    /// Runs the test case's tasks on one thread, choosing which ready task runs next from the
+    /// test case's choices.
+    ///
+    /// Races in tasks and actors become generated inputs that shrink and replay like any other:
+    /// a failure report shows the interleaving that caused it. Code that runs elsewhere escapes
+    /// control: `@MainActor` code, actors with custom executors, Dispatch, real clocks, and I/O
+    /// completions. It still runs, but its timing isn't reproducible, and reports say when that
+    /// happened. Pass ``TestCase/clock`` to code that sleeps.
+    case deterministic
+
+    /// Runs the test case with Swift's usual executors, in parallel and unreproducibly.
+    ///
+    /// Use it for code that blocks a thread waiting for other tasks, such as with
+    /// `DispatchSemaphore`, which would deadlock on one thread; for testing thread safety with
+    /// real parallelism or Thread Sanitizer; and for CPU-heavy parallel work.
+    case system
 }
 
 /// A stage of testing a property.

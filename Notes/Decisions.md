@@ -18,6 +18,8 @@ Contributor-facing notes on why Swiftpothesis is built the way it is. User docum
 - Generators must encode choices so that smaller means simpler. Built-in generators do; custom `Generator` conformances must.
 - A saved sequence reproduces only while its generators draw choices in the same order.
 
+**Shrink passes.** Following Hypothesis, structure comes first. Each round deletes runs of adjacent sibling spans (array elements, state-machine steps), largest run first and halving on failure; then single spans, largest first; then small chunks of raw choices; then zeroes chunks; then binary-searches each choice toward zero. Each array element and each machine step is one span that includes its continue choice, so deleting a span removes a whole element or step, and the steps after it regenerate against the new state. On FBF-shaped histories (a bug needing three particular commands among ~30) this reaches the minimal 3 steps in 150 attempts, where raw-chunk passes alone stopped at 16.
+
 **Determinism.** Shrinking must be deterministic: the same failing sequence and settings always shrink to the same result. Shrink passes may use randomness only if it is seeded deterministically from the run.
 
 **Customizing shrinking.** Value-level shrinkers (`(Value) -> [Value]`) don't fit, because a candidate value can't generally be mapped back to choices. Shrinking is instead customized through generation:
@@ -79,7 +81,7 @@ public protocol Generator<Value>: Sendable {
 - `T.arbitrary(…)` methods narrow it, such as `Int.arbitrary(in: 0...9)` or `[Int].arbitrary(count: 1...5)`. Each takes at least one argument, so `T.arbitrary()` never duplicates `T.arbitrary`. A narrowed generator produces a subset of `T.arbitrary`'s values, possibly with different frequencies, and constructs them directly rather than filtering.
 - A single obvious generator argument is unlabeled, as in `[Int].arbitrary(Int.arbitrary(in: 0...9))` and `Int?.arbitrary(…)`. Dictionaries label `keys:` and `values:`.
 - Methods return opaque types (`some Generator<T>`), so concrete generator types for values are internal.
-- Combinators not owned by a value type are leading-dot static members of `Generator`: `.oneOf`, `.weighted`, `.constant`, `.element(of:)`, `.recursive`; plus the free function `zip`.
+- Combinators not owned by a value type are free functions: `oneOf`, `weighted`, `constant`, `element(of:)`, `recursive`, and `zip`. They were first leading-dot static members of `Generator`, but implicit member chains can't type-check in generic argument positions (`.element(of: xs).map { … }`), which forced `AnyGenerator` wrappers everywhere in FBF's trial. Free functions work in every position, can be module-qualified (`Swiftpothesis.constant`) on a collision, and follow `zip`, `stride(from:to:by:)`, and `sequence(first:next:)`. The cost is a few common names in test targets' namespace, and no dot-autocomplete. `oneOf` and `weighted` take fixed arities of any generators, and arrays for computed choices.
 
 Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary(…)` methods for narrower values, usually built with `zip(…).map(…)`.
 
@@ -191,6 +193,22 @@ Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary
 **Deferred.**
 - `SWIFTPOTHESIS_REPLAY=<choices>`, to replay a reported failure without its database: one more global input that applies to every property in a run. Pasting the counterexample as an explicit example covers most needs.
 - Detecting stale replays, such as saving each counterexample's description with its choices and flagging a replay that describes differently.
+
+## 11. Deterministic scheduling
+
+**Decision.** Every test case runs under a controlled executor by default (`Settings.scheduling = .deterministic`). A `TaskExecutor` runs all of the test case's jobs on one thread; whenever more than one is ready, which runs next is a choice drawn from the test case. Interleavings are therefore generated inputs: they shrink toward running jobs in the order they became ready, and replay exactly. Every test case also has a `VirtualClock` (`test.clock`), conforming to the standard `Clock` protocol, that jumps to the earliest deadline when nothing else can run; code under test takes `some Clock<Duration>` and never imports Swiftpothesis.
+
+**Why this approach.** Swift has no equivalent of JavaScript's microtask queue, so a fast-check-style scheduler can't tell when every task has reached a scheduling point. Owning the executor makes "nothing is ready" exact. It's the approach of Erlang's PULSE and Rust's Loom and Shuttle, and it covers every suspension point without wrapping. A spike confirmed on Swift 6.4 that default actors, child tasks, and nonisolated async code follow `withTaskExecutorPreference`; that the same choices replay the same interleaving; that a lost-update race is found and replays; and that the whole suite passes with scheduling always on, at about twice the runtime of trivial properties.
+
+**Escapes.** `@MainActor` code, actors with custom executors, Dispatch, real clocks, and I/O completions run elsewhere. They still work, but aren't reproducible, so jobs arriving from other threads are counted and failure reports say when that happened.
+
+**Opt-out.** `scheduling = .system` uses Swift's executors, for code that blocks a thread on other tasks (which would deadlock on one thread), thread-safety tests that need real parallelism or Thread Sanitizer, and CPU-heavy parallel work. `.deterministic`/`.system` was preferred to a `Bool` (`controlsConcurrency`), which can't grow other modes, and to mechanism names (`executor: .controlled`). Under `.system`, `test.clock`'s sleeps advance it and return at once.
+
+**Reports.** Failures list the task chosen at each choice point, by name (`Task(name:)`, `addTask(name:)`) where the task reported one, else numbered in order of appearance. Jobs expose their task's ID but not its name, so names are learned when a task enqueues work while running; non-task jobs, such as actor processing, show as "job".
+
+**Platforms.** Task names need the 26 runtimes, so the package targets macOS, iOS, tvOS, watchOS, and visionOS 26: the last major release before the current one.
+
+**Replaced.** The earlier `Scheduler` design, after fast-check's `fc.scheduler()`, with explicitly wrapped operations and a `releaseAll()` that would have needed a timing heuristic to detect quiescence.
 
 ## Versioning
 

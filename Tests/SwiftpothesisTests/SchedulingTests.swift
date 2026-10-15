@@ -19,6 +19,11 @@ actor Counter {
     }
 }
 
+/// Records which thread an actor's methods run on.
+actor Probe {
+    func threadName() -> String? { Thread.current.name }
+}
+
 /// The current thread's name. Synchronous, since `Thread.current` is unavailable in async code.
 func currentThreadName() -> String? { Thread.current.name }
 
@@ -32,51 +37,39 @@ func retry<C: Clock<Duration>>(clock: C, attempts: Int) async -> Int {
     return tried
 }
 
-/// Records which thread an actor's methods run on.
-actor Probe {
-    func threadName() -> String? { Thread.current.name }
-}
-
 @Suite(.propertySettings { $0.database = nil })
-struct SchedulerSpikeTests {
-    /// Risk 1: do default actors run on the controlled executor?
-    @Test func defaultActorsRunOnTheControlledExecutor() async {
-        await forAll { test in
-            let scheduler = Scheduler(test)
-            let names = await scheduler.run {
-                let probe = Probe()
-                async let child = probe.threadName()
-                return (await probe.threadName(), await child, currentThreadName())
-            }
-            #expect(names.0 == ControlledExecutor.threadName)
-            #expect(names.1 == ControlledExecutor.threadName)
-            #expect(names.2 == ControlledExecutor.threadName)
-            #expect(scheduler.escapedJobs == 0)
+struct SchedulingTests {
+    @Test func propertiesRunOnTheControlledExecutor() async {
+        await forAll(Bool.arbitrary) { _ in
+            let probe = Probe()
+            async let child = probe.threadName()
+            #expect(await probe.threadName() == ControlledExecutor.threadName)
+            #expect(await child == ControlledExecutor.threadName)
+            #expect(currentThreadName() == ControlledExecutor.threadName)
         }
     }
 
-    /// Risk 4: is a race found and shrunk?
     @Test func findsAndShrinksALostUpdate() async {
         let issues = await failures {
-            await forAll { test in
-                let scheduler = Scheduler(test)
-                let (value, log) = await scheduler.run {
-                    let counter = Counter()
-                    async let a: Void = counter.increment("a")
-                    async let b: Void = counter.increment("b")
-                    _ = await (a, b)
-                    return (await counter.value, await counter.log)
+            await forAll { (_: Bool) in
+                let counter = Counter()
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask(name: "a") { await counter.increment("a") }
+                    group.addTask(name: "b") { await counter.increment("b") }
                 }
+                let log = await counter.log
                 note(log.joined(separator: ", "))
-                #expect(value == 2)
+                #expect(await counter.value == 2)
             }
         }
         let summary = issues.last ?? ""
         #expect(summary.contains("Property falsified"))
+        #expect(summary.contains("Interleaving: "))
+        #expect(summary.contains("a") && summary.contains("b"))
         #expect(!summary.contains("Flaky"))
+        #expect(!summary.contains("outside Swiftpothesis's scheduler"))
     }
 
-    /// Risk 2: do the same choices give the same interleaving?
     @Test func sameChoicesReplayTheSameInterleaving() async {
         func interleaving(_ choices: [UInt64]) async -> [String] {
             let testCase = TestCase(Source(prefix: choices, random: nil))
@@ -102,13 +95,10 @@ struct SchedulerSpikeTests {
         #expect(await interleaving([]) != interleaving([1, 1, 1, 1, 1, 1]))
     }
 
-    /// Risk 3: does virtual time order sleeps without waiting in real time?
-    @Test func virtualTimeOrdersSleepsInstantly() async throws {
-        let testCase = TestCase(Source(random: Xoshiro256(seed: 1)))
-        let scheduler = Scheduler(testCase)
-        let clock = scheduler.clock
+    @Test func virtualTimeOrdersSleepsInstantly() async {
         let start = ContinuousClock.now
-        let order = await scheduler.run {
+        await forAll { test in
+            let clock = test.clock
             let log = Mutex<[String]>([])
             async let slow: Void = {
                 try? await clock.sleep(for: .seconds(3600))
@@ -119,26 +109,21 @@ struct SchedulerSpikeTests {
                 log.withLock { $0.append("fast") }
             }()
             _ = await (slow, fast)
-            return log.withLock { $0 }
+            #expect(log.withLock { $0 } == ["fast", "slow"])
+            #expect(clock.now.offset == .seconds(3600))
         }
-        _ = testCase.close()
-        #expect(order == ["fast", "slow"])
-        #expect(clock.now.offset == .seconds(3600))
-        #expect(ContinuousClock.now - start < .seconds(1))
+        #expect(ContinuousClock.now - start < .seconds(5))
     }
 
-    /// Code generic over `Clock` runs on the virtual clock without knowing about Swiftpothesis.
     @Test func codeTakesAnyClock() async {
-        let testCase = TestCase(Source(random: Xoshiro256(seed: 1)))
-        let scheduler = Scheduler(testCase)
-        let clock = scheduler.clock
-        let tried = await scheduler.run { await retry(clock: clock, attempts: 5) }
-        _ = testCase.close()
-        #expect(tried == 5)
-        #expect(clock.now.offset == .seconds(150))
+        await forAll { test in
+            let attempts = try test.draw(Int.arbitrary(in: 1...5))
+            let clock = test.clock
+            #expect(await retry(clock: clock, attempts: attempts) == attempts)
+            #expect(clock.now.offset == .seconds(30 * attempts))
+        }
     }
 
-    /// Escaping work is detected rather than silently nondeterministic.
     @Test func escapedWorkIsDetected() async {
         let testCase = TestCase(Source(random: Xoshiro256(seed: 1)))
         let scheduler = Scheduler(testCase)
@@ -149,5 +134,15 @@ struct SchedulerSpikeTests {
         }
         _ = testCase.close()
         #expect(scheduler.escapedJobs > 0)
+    }
+
+    @Test(.propertySettings { $0.scheduling = .system })
+    func systemSchedulingOptsOut() async {
+        await forAll { test in
+            #expect(currentThreadName() != ControlledExecutor.threadName)
+            // Without a scheduler, sleeps advance the virtual clock and return at once.
+            try? await test.clock.sleep(for: .seconds(3600))
+            #expect(test.clock.now.offset == .seconds(3600))
+        }
     }
 }

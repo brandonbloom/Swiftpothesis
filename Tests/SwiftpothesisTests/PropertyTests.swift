@@ -50,7 +50,7 @@ struct PropertyTests {
         // An array, then an index into it: dependent generation that integrated shrinking
         // handles poorly.
         let generator = [Int].arbitrary(Int.arbitrary(in: 0...100), count: 1...20).flatMap {
-            array in zip(.constant(array), Int.arbitrary(in: 0...(array.count - 1)))
+            array in zip(constant(array), Int.arbitrary(in: 0...(array.count - 1)))
         }
         let issues = await failures {
             await forAll(generator) { pair in

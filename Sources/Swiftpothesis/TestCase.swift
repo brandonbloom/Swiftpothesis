@@ -9,19 +9,23 @@ import Synchronization
 /// ```swift
 /// await forAll { test in
 ///     let ids = try await server.create(try test.draw([String].arbitrary))
-///     let victim = try test.draw(.element(of: ids))
+///     let victim = try test.draw(element(of: ids))
 ///     …
 /// }
 /// ```
 ///
 /// Choices drawn this way are recorded, replayed, and shrunk like any others. Objects that make
-/// choices while a test runs, such as a ``Scheduler`` or a ``stream(of:)``, hold the test case
+/// choices while a test runs, such as a ``stream(of:)``, hold the test case
 /// they draw from.
 ///
 /// A test case is valid only while its property runs. Drawing from it afterward, such as from a
 /// task the property didn't await, is a programming error.
 public final class TestCase: Sendable {
     private let state: Mutex<Source?>
+
+    /// The test case's virtual clock. Pass it to code under test as `some Clock<Duration>` so its
+    /// sleeps and timeouts take no real time and run deterministically.
+    public let clock = VirtualClock()
 
     init(_ source: Source) {
         state = Mutex(source)
@@ -52,13 +56,21 @@ public final class TestCase: Sendable {
         }
     }
 
-    /// Decides whether a sequence continues. See ``Source/continues(count:bounds:average:)``.
-    func continues(count: Int, bounds: ClosedRange<Int>, average: Double) throws(Rejection) -> Bool
-    {
-        try state.withLock { (source) throws(Rejection) -> Bool in
+    /// Draws the next element of a sequence, or nil to end it, as one span: the choice to
+    /// continue, then the element. See ``Source/continues(count:bounds:average:)``.
+    func drawElement<G: Generator>(
+        _ generator: G, count: Int, bounds: ClosedRange<Int>, average: Double
+    ) throws(Rejection) -> G.Value? {
+        let value = try state.withLock { (source) throws(Rejection) -> G.Value? in
             guard source != nil else { preconditionFailure("TestCase used after it ended") }
-            return try source!.continues(count: count, bounds: bounds, average: average)
+            return try source!.span { (source) throws(Rejection) -> G.Value? in
+                guard try source.continues(count: count, bounds: bounds, average: average)
+                else { return nil }
+                return try generator.generate(from: &source)
+            }
         }
+        if let value { PropertyContext.current?.draws.append(String(reflecting: value)) }
+        return value
     }
 
     /// An endless sequence of values from a generator, each drawn when the sequence reaches it.

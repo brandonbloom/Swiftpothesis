@@ -89,7 +89,7 @@ public func forAll<each T: Arbitrary>(
 /// @Test func deletingAnyCreatedItem() async throws {
 ///     await forAll { test in
 ///         let ids = try await store.create(try test.draw([String].arbitrary(count: 1...10)))
-///         try await store.delete(try test.draw(.element(of: ids)))
+///         try await store.delete(try test.draw(element(of: ids)))
 ///         #expect(try await store.count == ids.count - 1)
 ///     }
 /// }

@@ -37,75 +37,125 @@ extension Generator {
 }
 
 // MARK: - Constants and choices
+//
+// Combinators that no value type owns are free functions, like `zip`, so they work in any
+// position, including chained (`element(of: xs).map { … }`) where a generic argument is
+// expected, and can be qualified as `Swiftpothesis.oneOf(…)` if a name collides.
+//
+// Parameter packs can't yet require their elements' values to be equal ("same-element
+// requirements are not yet supported"), so fixed arities are spelled out, alongside array forms
+// for choices that are computed, such as from a state machine's state.
 
-extension Generator {
-    /// A generator that always produces `value`.
-    public static func constant<T: Sendable>(_ value: T) -> Self
-    where Self == Generators.Constant<T> {
-        Generators.Constant(value: value)
-    }
+/// A generator that always produces `value`.
+public func constant<T: Sendable>(_ value: T) -> some Generator<T> {
+    Generators.Constant(value: value)
+}
 
-    /// Chooses one of `elements`, shrinking toward the first.
-    public static func element<C: Collection & Sendable>(
-        of elements: C
-    ) -> Self where Self == Generators.Element<C> {
-        precondition(!elements.isEmpty, "element(of:) requires a non-empty collection")
-        return Generators.Element(elements: elements)
-    }
+/// Chooses one of `elements`, shrinking toward the first.
+public func element<C: Collection & Sendable>(of elements: C) -> some Generator<C.Element>
+where C.Element: Sendable {
+    precondition(!elements.isEmpty, "element(of:) requires a non-empty collection")
+    return Generators.Element(elements: elements)
+}
 
-    // Parameter packs can't yet require their elements' values to be equal ("same-element
-    // requirements are not yet supported"), so each arity is spelled out.
-    /// Draws from one of `generators`, shrinking toward the first.
-    public static func oneOf<V>(_ generators: [AnyGenerator<V>]) -> Self
-    where Self == Generators.OneOf<V> {
-        precondition(!generators.isEmpty, "oneOf requires at least one generator")
-        return Generators.OneOf(choices: generators.map { (1, $0) })
-    }
+/// Draws from one of `generators`, shrinking toward the first.
+public func oneOf<G: Generator>(_ generators: [G]) -> some Generator<G.Value> {
+    precondition(!generators.isEmpty, "oneOf requires at least one generator")
+    return Generators.OneOf(choices: generators.map { (1, AnyGenerator($0)) })
+}
 
-    /// Draws from one of the generators, shrinking toward the first.
-    public static func oneOf<A: Generator, B: Generator>(_ a: A, _ b: B) -> Self
-    where Self == Generators.OneOf<A.Value>, B.Value == A.Value {
-        .oneOf([AnyGenerator(a), AnyGenerator(b)])
-    }
+/// Draws from one of the generators, shrinking toward the first.
+public func oneOf<A: Generator, B: Generator>(_ a: A, _ b: B) -> some Generator<A.Value>
+where B.Value == A.Value {
+    Generators.OneOf(choices: [AnyGenerator(a), AnyGenerator(b)].map { (1, $0) })
+}
 
-    /// Draws from one of the generators, shrinking toward the first.
-    public static func oneOf<A: Generator, B: Generator, C: Generator>(_ a: A, _ b: B, _ c: C)
-        -> Self
-    where Self == Generators.OneOf<A.Value>, B.Value == A.Value, C.Value == A.Value {
-        .oneOf([AnyGenerator(a), AnyGenerator(b), AnyGenerator(c)])
-    }
+/// Draws from one of the generators, shrinking toward the first.
+public func oneOf<A: Generator, B: Generator, C: Generator>(_ a: A, _ b: B, _ c: C)
+    -> some Generator<A.Value>
+where B.Value == A.Value, C.Value == A.Value {
+    Generators.OneOf(choices: [AnyGenerator(a), AnyGenerator(b), AnyGenerator(c)].map { (1, $0) })
+}
 
-    /// Draws from one of the generators, shrinking toward the first.
-    public static func oneOf<A: Generator, B: Generator, C: Generator, D: Generator>(
-        _ a: A, _ b: B, _ c: C, _ d: D
-    ) -> Self
-    where
-        Self == Generators.OneOf<A.Value>, B.Value == A.Value, C.Value == A.Value,
-        D.Value == A.Value
-    {
-        .oneOf([AnyGenerator(a), AnyGenerator(b), AnyGenerator(c), AnyGenerator(d)])
-    }
+/// Draws from one of the generators, shrinking toward the first.
+public func oneOf<A: Generator, B: Generator, C: Generator, D: Generator>(
+    _ a: A, _ b: B, _ c: C, _ d: D
+) -> some Generator<A.Value>
+where B.Value == A.Value, C.Value == A.Value, D.Value == A.Value {
+    Generators.OneOf(
+        choices: [AnyGenerator(a), AnyGenerator(b), AnyGenerator(c), AnyGenerator(d)].map {
+            (1, $0)
+        })
+}
 
-    /// Draws from one of the generators, shrinking toward the first.
-    public static func oneOf<A: Generator, B: Generator, C: Generator, D: Generator, E: Generator>(
-        _ a: A, _ b: B, _ c: C, _ d: D, _ e: E
-    ) -> Self
-    where
-        Self == Generators.OneOf<A.Value>, B.Value == A.Value, C.Value == A.Value,
-        D.Value == A.Value, E.Value == A.Value
-    {
-        .oneOf([
+/// Draws from one of the generators, shrinking toward the first.
+public func oneOf<A: Generator, B: Generator, C: Generator, D: Generator, E: Generator>(
+    _ a: A, _ b: B, _ c: C, _ d: D, _ e: E
+) -> some Generator<A.Value>
+where B.Value == A.Value, C.Value == A.Value, D.Value == A.Value, E.Value == A.Value {
+    Generators.OneOf(
+        choices: [
             AnyGenerator(a), AnyGenerator(b), AnyGenerator(c), AnyGenerator(d), AnyGenerator(e),
-        ])
-    }
+        ].map { (1, $0) })
+}
 
-    /// Draws from one of `generators`, chosen in proportion to their weights, and shrinking
-    /// toward the first.
-    public static func weighted<V>(_ choices: (weight: Int, generator: AnyGenerator<V>)...)
-        -> Self where Self == Generators.OneOf<V>
-    {
-        Generators.OneOf(choices: choices.map { ($0.weight, $0.generator) })
-    }
+/// Draws from one of `choices`' generators, chosen in proportion to their weights, and
+/// shrinking toward the first.
+///
+/// ```swift
+/// var choices: [(weight: Int, generator: AnyGenerator<Command>)] = [(2, AnyGenerator(syncAll))]
+/// if !pending.isEmpty { choices.append((10, AnyGenerator(element(of: pending).map(Command.transfer)))) }
+/// return weighted(choices)
+/// ```
+public func weighted<G: Generator>(_ choices: [(weight: Int, generator: G)])
+    -> some Generator<G.Value>
+{
+    precondition(choices.contains { $0.weight > 0 }, "weighted requires a positive weight")
+    return Generators.OneOf(choices: choices.map { ($0.weight, AnyGenerator($0.generator)) })
+}
+
+/// Draws from one of the generators, chosen in proportion to their weights, and shrinking
+/// toward the first.
+public func weighted<A: Generator, B: Generator>(_ a: (Int, A), _ b: (Int, B)) -> some Generator<
+    A.Value
+>
+where B.Value == A.Value {
+    Generators.OneOf(choices: [(a.0, AnyGenerator(a.1)), (b.0, AnyGenerator(b.1))])
+}
+
+/// Draws from one of the generators, chosen in proportion to their weights, and shrinking
+/// toward the first.
+public func weighted<A: Generator, B: Generator, C: Generator>(
+    _ a: (Int, A), _ b: (Int, B), _ c: (Int, C)
+) -> some Generator<A.Value>
+where B.Value == A.Value, C.Value == A.Value {
+    Generators.OneOf(choices: [
+        (a.0, AnyGenerator(a.1)), (b.0, AnyGenerator(b.1)), (c.0, AnyGenerator(c.1)),
+    ])
+}
+
+/// Draws from one of the generators, chosen in proportion to their weights, and shrinking
+/// toward the first.
+public func weighted<A: Generator, B: Generator, C: Generator, D: Generator>(
+    _ a: (Int, A), _ b: (Int, B), _ c: (Int, C), _ d: (Int, D)
+) -> some Generator<A.Value>
+where B.Value == A.Value, C.Value == A.Value, D.Value == A.Value {
+    Generators.OneOf(choices: [
+        (a.0, AnyGenerator(a.1)), (b.0, AnyGenerator(b.1)), (c.0, AnyGenerator(c.1)),
+        (d.0, AnyGenerator(d.1)),
+    ])
+}
+
+/// Draws from one of the generators, chosen in proportion to their weights, and shrinking
+/// toward the first.
+public func weighted<A: Generator, B: Generator, C: Generator, D: Generator, E: Generator>(
+    _ a: (Int, A), _ b: (Int, B), _ c: (Int, C), _ d: (Int, D), _ e: (Int, E)
+) -> some Generator<A.Value>
+where B.Value == A.Value, C.Value == A.Value, D.Value == A.Value, E.Value == A.Value {
+    Generators.OneOf(choices: [
+        (a.0, AnyGenerator(a.1)), (b.0, AnyGenerator(b.1)), (c.0, AnyGenerator(c.1)),
+        (d.0, AnyGenerator(d.1)), (e.0, AnyGenerator(e.1)),
+    ])
 }
 
 /// Combines generators into one that produces tuples of their values.
@@ -134,32 +184,30 @@ extension Generators.Zip {
 
 // MARK: - Recursion
 
-extension Generator {
-    /// A generator for recursive structures, such as trees or expressions.
-    ///
-    /// `extend` receives a generator for smaller instances and returns a generator for a larger
-    /// one. Each level of recursion is entered with decreasing probability, and never below
-    /// `maxDepth`, so generated values are finite and shrink toward `base`.
-    ///
-    /// ```swift
-    /// indirect enum Tree { case leaf(Int), node(Tree, Tree) }
-    /// let trees: AnyGenerator<Tree> = .recursive(base: Int.arbitrary(in: 0...9).map(Tree.leaf)) {
-    ///     subtree in zip(subtree, subtree).map(Tree.node)
-    /// }
-    /// ```
-    public static func recursive<V>(
-        base: some Generator<V>,
-        maxDepth: Int = 5,
-        _ extend: @escaping @Sendable (AnyGenerator<V>) -> some Generator<V>
-    ) -> Self where Self == AnyGenerator<V> {
-        let base = AnyGenerator(base)
-        func level(_ depth: Int) -> AnyGenerator<V> {
-            guard depth > 0 else { return base }
-            let deeper = AnyGenerator(extend(level(depth - 1)))
-            return AnyGenerator(Generators.OneOf(choices: [(1, base), (1, deeper)]))
-        }
-        return level(maxDepth)
+/// A generator for recursive structures, such as trees or expressions.
+///
+/// `extend` receives a generator for smaller instances and returns a generator for a larger
+/// one. Each level of recursion is entered with decreasing probability, and never below
+/// `maxDepth`, so generated values are finite and shrink toward `base`.
+///
+/// ```swift
+/// indirect enum Tree { case leaf(Int), node(Tree, Tree) }
+/// let trees = recursive(base: Int.arbitrary(in: 0...9).map(Tree.leaf)) { subtree in
+///     zip(subtree, subtree).map(Tree.node)
+/// }
+/// ```
+public func recursive<V>(
+    base: some Generator<V>,
+    maxDepth: Int = 5,
+    _ extend: @escaping @Sendable (AnyGenerator<V>) -> some Generator<V>
+) -> AnyGenerator<V> {
+    let base = AnyGenerator(base)
+    func level(_ depth: Int) -> AnyGenerator<V> {
+        guard depth > 0 else { return base }
+        let deeper = AnyGenerator(extend(level(depth - 1)))
+        return AnyGenerator(Generators.OneOf(choices: [(1, base), (1, deeper)]))
     }
+    return level(maxDepth)
 }
 
 // MARK: - Generator types
@@ -208,28 +256,25 @@ public enum Generators {
         }
     }
 
-    /// A generator that always produces the same value. See ``Generator/constant(_:)``.
-    public struct Constant<Value: Sendable>: Generator {
+    struct Constant<Value: Sendable>: Generator {
         let value: Value
 
-        public func generate(from source: inout Source) throws(Rejection) -> Value { value }
+        func generate(from source: inout Source) throws(Rejection) -> Value { value }
     }
 
-    /// A generator that chooses an element of a collection. See ``Generator/element(of:)``.
-    public struct Element<Elements: Collection & Sendable>: Generator {
+    struct Element<Elements: Collection & Sendable>: Generator where Elements.Element: Sendable {
         let elements: Elements
 
-        public func generate(from source: inout Source) throws(Rejection) -> Elements.Element {
+        func generate(from source: inout Source) throws(Rejection) -> Elements.Element {
             let offset = try source.choose(atMost: UInt64(elements.count - 1))
             return elements[elements.index(elements.startIndex, offsetBy: Int(offset))]
         }
     }
 
-    /// A generator that draws from one of several generators. See ``Generator/oneOf(_:)``.
-    public struct OneOf<Value>: Generator {
+    struct OneOf<Value: Sendable>: Generator {
         let choices: [(weight: Int, generator: AnyGenerator<Value>)]
 
-        public func generate(from source: inout Source) throws(Rejection) -> Value {
+        func generate(from source: inout Source) throws(Rejection) -> Value {
             let total = choices.reduce(0) { $0 + $1.weight }
             var pick = Int(try source.choose(atMost: UInt64(total - 1)))
             for choice in choices {

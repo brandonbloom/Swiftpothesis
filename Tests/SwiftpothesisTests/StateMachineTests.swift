@@ -33,7 +33,7 @@ struct StackMachine: SequentialMachine {
     func makeState() -> (model: [Int], stack: LeakyStack) { ([], LeakyStack()) }
 
     func commands(for state: (model: [Int], stack: LeakyStack)) -> some Generator<StackCommand> {
-        .oneOf(Int.arbitrary(in: 0...9).map(StackCommand.push), .constant(.pop))
+        oneOf(Int.arbitrary(in: 0...9).map(StackCommand.push), constant(.pop))
     }
 
     func run(_ command: StackCommand, state: inout (model: [Int], stack: LeakyStack)) async throws {
@@ -67,7 +67,7 @@ struct LinearizableStack: LinearizableMachine {
     func makeModel() -> [Int] { [] }
     func makeSystem() -> Box { Box() }
     func commands(for model: [Int]) -> some Generator<StackCommand> {
-        .oneOf(Int.arbitrary(in: 0...9).map(StackCommand.push), .constant(.pop))
+        oneOf(Int.arbitrary(in: 0...9).map(StackCommand.push), constant(.pop))
     }
     func precondition(_ command: StackCommand, model: [Int]) -> Bool {
         if case .pop = command { !model.isEmpty } else { true }
@@ -121,7 +121,7 @@ struct StateMachineTests {
         // counterexample is one skipped command.
         struct AlwaysSkips: SequentialMachine {
             func makeState() -> Int { 0 }
-            func commands(for state: Int) -> some Generator<StackCommand> { .constant(.pop) }
+            func commands(for state: Int) -> some Generator<StackCommand> { constant(.pop) }
             func run(_ command: StackCommand, state: inout Int) async throws { try skip("empty") }
             func finish(state: inout Int) async throws { #expect(Bool(false)) }
         }
@@ -138,7 +138,7 @@ struct StateMachineTests {
         struct Recorder: SequentialMachine {
             let box: Box
             func makeState() -> Int { 0 }
-            func commands(for state: Int) -> some Generator<StackCommand> { .constant(.pop) }
+            func commands(for state: Int) -> some Generator<StackCommand> { constant(.pop) }
             func run(_ command: StackCommand, state: inout Int) async throws { state += 1 }
             func finish(state: inout Int) async throws { box.lengths.withLock { $0.append(state) } }
         }
@@ -151,7 +151,7 @@ struct StateMachineTests {
     @Test func finishAloneIsTheMinimalCase() async {
         struct NeverConverges: SequentialMachine {
             func makeState() -> Int { 0 }
-            func commands(for state: Int) -> some Generator<StackCommand> { .constant(.pop) }
+            func commands(for state: Int) -> some Generator<StackCommand> { constant(.pop) }
             func run(_ command: StackCommand, state: inout Int) async throws {}
             func finish(state: inout Int) async throws { #expect(Bool(false)) }
         }

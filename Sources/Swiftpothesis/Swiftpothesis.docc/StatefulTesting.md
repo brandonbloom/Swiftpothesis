@@ -34,7 +34,7 @@ struct StackMachine: SequentialMachine {
     }
 
     func commands(for state: (model: [Int], stack: BoundedStack)) -> some Generator<Command> {
-        .oneOf(Int.arbitrary(in: 0...9).map(Command.push), .constant(.pop))
+        oneOf(Int.arbitrary(in: 0...9).map(Command.push), constant(.pop))
     }
 
     func run(_ command: Command, state: inout (model: [Int], stack: BoundedStack)) async throws {
@@ -95,4 +95,3 @@ await check(QueueMachine().sequential)
 - ``LinearizableMachine``
 - ``SequentialAdapter``
 - ``checkLinearizability(_:steps:averageSteps:branches:id:settings:sourceLocation:isolation:)``
-- ``Scheduler``

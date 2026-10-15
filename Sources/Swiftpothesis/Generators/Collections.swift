@@ -83,14 +83,17 @@ extension Generators {
         }
 
         func generate(from source: inout Source) throws(Rejection) -> [Element.Value] {
-            // Each element is preceded by a choice to continue, so the shrinker can delete an
-            // element by deleting its span, and shorten the array by zeroing a choice.
+            // Each element is one span: a choice to continue, then the element's choices. So the
+            // shrinker deletes an element by deleting its span, and shortens the array by
+            // zeroing a continue choice.
             var result: [Element.Value] = []
-            while try source.continues(count: result.count, bounds: count, average: averageCount) {
-                result.append(
-                    try source.span { (source) throws(Rejection) in
-                        try element.generate(from: &source)
-                    })
+            while let value = try source.span({ (source) throws(Rejection) -> Element.Value? in
+                guard
+                    try source.continues(count: result.count, bounds: count, average: averageCount)
+                else { return nil }
+                return try element.generate(from: &source)
+            }) {
+                result.append(value)
             }
             return result
         }

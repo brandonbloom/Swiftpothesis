@@ -8,7 +8,7 @@ let strict: [SwiftSetting] =
 
 let package = Package(
     name: "Swiftpothesis",
-    platforms: [.macOS(.v15), .iOS(.v18), .tvOS(.v18), .watchOS(.v11), .visionOS(.v2)],
+    platforms: [.macOS("26.0"), .iOS("26.0"), .tvOS("26.0"), .watchOS("26.0"), .visionOS("26.0")],
     products: [
         .library(name: "Swiftpothesis", targets: ["Swiftpothesis"])
     ],

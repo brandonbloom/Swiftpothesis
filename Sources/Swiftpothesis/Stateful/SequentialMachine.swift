@@ -19,7 +19,7 @@ import Testing
 ///     func makeState() -> (model: [Int], stack: BoundedStack) { ([], BoundedStack(capacity: 3)) }
 ///
 ///     func commands(for state: (model: [Int], stack: BoundedStack)) -> some Generator<Command> {
-///         .oneOf(Int.arbitrary(in: 0...9).map(Command.push), .constant(.pop))
+///         oneOf(Int.arbitrary(in: 0...9).map(Command.push), constant(.pop))
 ///     }
 ///
 ///     func run(_ command: Command, state: inout (model: [Int], stack: BoundedStack)) async throws {
@@ -152,9 +152,11 @@ public func check<M: SequentialMachine>(
     ) {
         testCase, context in
         try await runSequence(machine, context: context) { state in
-            guard try testCase.continues(count: context.steps, bounds: steps, average: averageSteps)
-            else { return nil }
-            return try testCase.draw(try await machine.commands(for: state))
+            // Each step is one span, so the shrinker deletes whole steps, and the steps after a
+            // deleted one are regenerated against the new state.
+            try testCase.drawElement(
+                try await machine.commands(for: state), count: context.steps, bounds: steps,
+                average: averageSteps)
         }
     }
 }

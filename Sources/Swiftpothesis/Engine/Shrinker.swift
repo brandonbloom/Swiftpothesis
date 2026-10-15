@@ -8,24 +8,41 @@
 /// Candidates are ordered shortlex: fewer choices are simpler, then lexicographically smaller
 /// ones. The shrinker proposes candidates one at a time with ``nextCandidate()`` and learns each
 /// one's outcome from ``record(_:)``, leaving how candidates run to the ``Driver``'s caller.
-/// Passes run in rounds until a round makes no progress or the budget runs out. It
-/// uses no randomness, so shrinking is deterministic.
 ///
-/// TODO: Span-aware passes (delete, duplicate, and sort spans), as Hypothesis's shrinker has.
+/// Following Hypothesis, structure comes first. Each round:
+/// 1. Deletes runs of adjacent sibling spans, such as consecutive array elements or state-machine
+///    steps, trying the largest run first and halving on failure.
+/// 2. Deletes single spans, largest first, which reaches nested structure.
+/// 3. Deletes and zeroes small chunks of raw choices.
+/// 4. Binary-searches each choice toward zero.
+///
+/// Deleting a span shifts the choices after it, so later values and steps are regenerated from
+/// the remaining choices, against the new state. Rounds repeat until one makes no progress or the
+/// budget runs out. Shrinking uses no randomness, so it's deterministic.
 struct Shrinker {
     private(set) var choices: [UInt64]
+    private(set) var spans: [Range<Int>]
     private(set) var failure: Failure
     /// The last example at each origin that shrinking moved away from.
     private(set) var leftBehind: [(choices: [UInt64], failure: Failure)] = []
     private var budget: Int
-    private var pass: Pass = .delete(sizeIndex: 0, start: nil)
+    private var pass: Pass = .deleteRuns(group: 0, start: 0, size: nil)
     private var improvedThisRound = false
     private var awaitingResult = false
 
+    /// The outcome of running a candidate that failed: the choices it drew, the spans they
+    /// formed, and its failure.
+    typealias Result = (choices: [UInt64], spans: [Range<Int>], failure: Failure)
+
     private enum Pass {
+        /// Deletes `size` siblings of `siblingGroups[group]` starting at `start`. A nil size means
+        /// the largest power of two that fits.
+        case deleteRuns(group: Int, start: Int, size: Int?)
+        /// Deletes `spansBySize[index]`.
+        case deleteSpans(index: Int)
         /// Deletes `deleteSizes[sizeIndex]` choices at `start` (nil: the last possible start),
         /// moving from the end toward the front.
-        case delete(sizeIndex: Int, start: Int?)
+        case deleteChunks(sizeIndex: Int, start: Int?)
         /// Zeroes `zeroSizes[sizeIndex]` choices at `start`, moving toward the end.
         case zero(sizeIndex: Int, start: Int)
         /// Binary-searches the choice at `index` for its smallest failing value in `low...high`.
@@ -36,8 +53,9 @@ struct Shrinker {
     private static let deleteSizes = [8, 4, 2, 1]
     private static let zeroSizes = [8, 4, 2]
 
-    init(choices: [UInt64], failure: Failure, budget: Int) {
+    init(choices: [UInt64], spans: [Range<Int>], failure: Failure, budget: Int) {
         self.choices = choices
+        self.spans = spans
         self.failure = failure
         self.budget = budget
     }
@@ -62,9 +80,8 @@ struct Shrinker {
         return nil
     }
 
-    /// Records the outcome of the last candidate: the choices it drew and its failure, or nil if
-    /// it didn't fail.
-    mutating func record(_ result: (choices: [UInt64], failure: Failure)?) {
+    /// Records the outcome of the last candidate: its result if it failed, or nil if it didn't.
+    mutating func record(_ result: Result?) {
         guard awaitingResult else { return }
         awaitingResult = false
         if let result, isSimpler(result.choices, than: choices) {
@@ -73,25 +90,96 @@ struct Shrinker {
             {
                 leftBehind.append((choices, failure))
             }
-            (choices, failure) = (result.choices, result.failure)
+            (choices, spans, failure) = (result.choices, result.spans, result.failure)
             improvedThisRound = true
-            if case .minimize(let index, let low, _) = pass, index < choices.count {
+            switch pass {
+            case .minimize(let index, let low, _) where index < choices.count:
                 // Keep searching below the new, smaller value.
                 pass = .minimize(index: index, low: low, high: choices[index])
-            } else {
+            case .deleteRuns, .deleteSpans:
+                // Stay put: the same step now applies to different, simpler structure.
+                break
+            default:
                 advance()
             }
-        } else if case .minimize(let index, let low, let high) = pass {
-            pass = .minimize(index: index, low: low + (high - low) / 2 + 1, high: high)
         } else {
-            advance()
+            switch pass {
+            case .minimize(let index, let low, let high):
+                pass = .minimize(index: index, low: low + (high - low) / 2 + 1, high: high)
+            case .deleteRuns(let group, let start, let size):
+                // Try a smaller run at the same start, down to one sibling.
+                let size = size ?? largestRun(group: group, start: start)
+                pass =
+                    size > 1
+                    ? .deleteRuns(group: group, start: start, size: size / 2)
+                    : .deleteRuns(group: group, start: start + 1, size: nil)
+            default:
+                advance()
+            }
         }
     }
+
+    // MARK: - Structure
+
+    /// Groups of sibling spans: spans with the same smallest enclosing span, in order.
+    private var siblingGroups: [[Range<Int>]] {
+        let unique = Array(Set(spans.filter { !$0.isEmpty }))
+        var groups: [Range<Int>?: [Range<Int>]] = [:]
+        for span in unique {
+            let parent =
+                unique
+                .filter { $0 != span && $0.contains(span) }
+                .min { $0.count < $1.count }
+            groups[parent, default: []].append(span)
+        }
+        return
+            groups
+            .sorted {
+                ($0.key?.lowerBound ?? -1, $0.key?.count ?? 0) < (
+                    $1.key?.lowerBound ?? -1, $1.key?.count ?? 0
+                )
+            }
+            .map { $0.value.sorted { $0.lowerBound < $1.lowerBound } }
+    }
+
+    /// Spans from largest to smallest, so the biggest structure goes first.
+    private var spansBySize: [Range<Int>] {
+        Array(Set(spans.filter { !$0.isEmpty }))
+            .sorted { ($0.count, $1.lowerBound) > ($1.count, $0.lowerBound) }
+    }
+
+    private func largestRun(group: Int, start: Int) -> Int {
+        let groups = siblingGroups
+        guard group < groups.count else { return 0 }
+        let remaining = groups[group].count - start
+        guard remaining > 0 else { return 0 }
+        var size = 1
+        while size * 2 <= remaining { size *= 2 }
+        return size
+    }
+
+    // MARK: - Candidates
 
     /// The candidate for the current step, or nil if the step is out of range.
     private func candidate() -> [UInt64]? {
         switch pass {
-        case .delete(let sizeIndex, let start):
+        case .deleteRuns(let group, let start, let size):
+            let groups = siblingGroups
+            guard group < groups.count, start < groups[group].count else { return nil }
+            let size = min(
+                size ?? largestRun(group: group, start: start), groups[group].count - start)
+            guard size > 0 else { return nil }
+            let run = groups[group][start].lowerBound..<groups[group][start + size - 1].upperBound
+            var candidate = choices
+            candidate.removeSubrange(run.clamped(to: 0..<choices.count))
+            return candidate
+        case .deleteSpans(let index):
+            let spans = spansBySize
+            guard index < spans.count else { return nil }
+            var candidate = choices
+            candidate.removeSubrange(spans[index].clamped(to: 0..<choices.count))
+            return candidate
+        case .deleteChunks(let sizeIndex, let start):
             let size = Self.deleteSizes[sizeIndex]
             let start = start ?? choices.count - size
             guard start >= 0, start + size <= choices.count else { return nil }
@@ -117,13 +205,26 @@ struct Shrinker {
     /// Moves to the next step, the next pass, or the next round.
     private mutating func advance() {
         switch pass {
-        case .delete(let sizeIndex, let start):
+        case .deleteRuns(let group, let start, _):
+            let groups = siblingGroups
+            if group < groups.count, start + 1 < groups[group].count {
+                pass = .deleteRuns(group: group, start: start + 1, size: nil)
+            } else if group + 1 < groups.count {
+                pass = .deleteRuns(group: group + 1, start: 0, size: nil)
+            } else {
+                pass = .deleteSpans(index: 0)
+            }
+        case .deleteSpans(let index):
+            pass =
+                index + 1 < spansBySize.count
+                ? .deleteSpans(index: index + 1) : .deleteChunks(sizeIndex: 0, start: nil)
+        case .deleteChunks(let sizeIndex, let start):
             let size = Self.deleteSizes[sizeIndex]
             let next = Swift.min((start ?? choices.count - size) - 1, choices.count - size)
             if next >= 0 {
-                pass = .delete(sizeIndex: sizeIndex, start: next)
+                pass = .deleteChunks(sizeIndex: sizeIndex, start: next)
             } else if sizeIndex + 1 < Self.deleteSizes.count {
-                pass = .delete(sizeIndex: sizeIndex + 1, start: nil)
+                pass = .deleteChunks(sizeIndex: sizeIndex + 1, start: nil)
             } else {
                 pass = .zero(sizeIndex: 0, start: 0)
             }
@@ -148,7 +249,7 @@ struct Shrinker {
         } else if improvedThisRound {
             // A round that made progress earns another.
             improvedThisRound = false
-            pass = .delete(sizeIndex: 0, start: nil)
+            pass = .deleteRuns(group: 0, start: 0, size: nil)
         } else {
             pass = .finished
         }
@@ -157,4 +258,11 @@ struct Shrinker {
 
 func isSimpler(_ a: [UInt64], than b: [UInt64]) -> Bool {
     a.count != b.count ? a.count < b.count : a.lexicographicallyPrecedes(b)
+}
+
+extension Range where Bound == Int {
+    /// Whether this range contains all of `other`.
+    fileprivate func contains(_ other: Range<Int>) -> Bool {
+        lowerBound <= other.lowerBound && other.upperBound <= upperBound
+    }
 }

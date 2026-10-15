@@ -82,6 +82,10 @@ final class PropertyContext: @unchecked Sendable {
     var draws: [String] = []
     /// The number of commands a state machine has run, including skipped ones.
     var steps = 0
+    /// The tasks the scheduler chose at each choice point.
+    var interleaving: [String] = []
+    /// How many jobs ran outside the scheduler's control.
+    var escapedJobs = 0
     var notes: [String] = []
     var labels: Set<String> = []
     var targets: [String: Double] = [:]
@@ -197,7 +201,7 @@ struct Driver {
         switch state {
         case .reuse(let saved, let index):
             if case .failed(let failure) = outcome {
-                foundFailure(source.choices, failure)
+                foundFailure(source, failure)
             } else {
                 settings.database?.delete(saved[index], for: databaseKey)
                 state = .reuse(saved: saved, index: index + 1)
@@ -211,11 +215,11 @@ struct Driver {
             case .discarded:
                 state = .generate(random: random, discards: discards + 1)
             case .failed(let failure):
-                foundFailure(source.choices, failure)
+                foundFailure(source, failure)
             }
         case .shrink(var shrinker):
             if case .failed(let failure) = outcome {
-                shrinker.record((source.choices, failure))
+                shrinker.record((source.choices, source.spans, failure))
             } else {
                 shrinker.record(nil)
             }
@@ -225,13 +229,15 @@ struct Driver {
         }
     }
 
-    private mutating func foundFailure(_ choices: [UInt64], _ failure: Failure) {
-        found = (choices, failure)
-        original = (choices, failure)
+    private mutating func foundFailure(_ source: Source, _ failure: Failure) {
+        found = (source.choices, failure)
+        original = (source.choices, failure)
         state =
             settings.phases.contains(.shrink)
             ? .shrink(
-                Shrinker(choices: choices, failure: failure, budget: settings.maxShrinkAttempts))
+                Shrinker(
+                    choices: source.choices, spans: source.spans, failure: failure,
+                    budget: settings.maxShrinkAttempts))
             : .done
     }
 }
@@ -268,19 +274,24 @@ struct Engine {
     func run(
         isolation: isolated (any Actor)?, explicit: [ExplicitExample] = [], _ test: TestFunction
     ) async -> PropertyResult {
-        // SPIKE: SWIFTPOTHESIS_EXPERIMENT_SCHEDULER=1 runs every test case under a Scheduler, to
-        // see what breaks if forAll always provides one.
-        if ProcessInfo.processInfo.environment["SWIFTPOTHESIS_EXPERIMENT_SCHEDULER"] == "1" {
-            nonisolated(unsafe) let unscheduled = test
-            return await withoutActuallyEscaping(unscheduled) { unscheduled in
-                nonisolated(unsafe) let unscheduled = unscheduled
-                return await runUnscheduled(isolation: isolation, explicit: explicit) {
-                    testCase, context in
-                    try await Scheduler(testCase).run { try await unscheduled(testCase, context) }
+        guard settings.scheduling == .deterministic else {
+            return await runUnscheduled(isolation: isolation, explicit: explicit, test)
+        }
+        // Run each test case under a scheduler. `test` isn't Sendable, but the scheduler runs it
+        // before returning, with the caller suspended.
+        nonisolated(unsafe) let unscheduled = test
+        return await withoutActuallyEscaping(unscheduled) { unscheduled in
+            nonisolated(unsafe) let unscheduled = unscheduled
+            return await runUnscheduled(isolation: isolation, explicit: explicit) {
+                testCase, context in
+                let scheduler = Scheduler(testCase)
+                defer {
+                    context.interleaving = scheduler.interleaving
+                    context.escapedJobs = scheduler.escapedJobs
                 }
+                try await scheduler.run { try await unscheduled(testCase, context) }
             }
         }
-        return await runUnscheduled(isolation: isolation, explicit: explicit, test)
     }
 
     private func runUnscheduled(
@@ -495,6 +506,14 @@ struct Engine {
             context.description.isEmpty
                 ? "Counterexample:\n\(counterexample)" : "Counterexample: \(counterexample)")
         lines += context.notes.map { "Note: \($0)" }
+        if !context.interleaving.isEmpty {
+            lines.append("Interleaving: \(context.interleaving.joined(separator: " → "))")
+        }
+        if context.escapedJobs > 0 {
+            lines.append(
+                "\(context.escapedJobs == 1 ? "1 job" : "\(context.escapedJobs) jobs") ran outside Swiftpothesis's scheduler, such as on the main actor, Dispatch, or a real clock, so this interleaving may not reproduce."
+            )
+        }
         if driver.shrinkingRanOutOfAttempts {
             lines.append(
                 "Shrinking stopped after \(settings.maxShrinkAttempts) attempts, so the counterexample may not be minimal."

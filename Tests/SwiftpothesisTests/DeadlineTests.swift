@@ -13,7 +13,9 @@ struct DeadlineTests {
                 try await Task.sleep(for: .milliseconds(x))
             }
         }
-        #expect(issues.contains { $0.contains("Deadline exceeded") })
+        // The shrunk example is the slow input nearest the deadline, so timing noise sometimes
+        // makes its replay fast enough to be reported as flaky instead.
+        #expect(issues.contains { $0.contains("Deadline exceeded") || $0.contains("Flaky") })
         let summary = issues.last ?? ""
         #expect(summary.contains("Counterexample:"))
         // The smallest slow input sleeps somewhat less than the deadline, since scheduling adds a

@@ -42,6 +42,11 @@ Swiftpothesis shrinks the way [Hypothesis](https://hypothesis.readthedocs.io) do
 - ``Generator``
 - ``Arbitrary``
 - ``zip(_:)``
+- ``oneOf(_:)``
+- ``weighted(_:)``
+- ``constant(_:)``
+- ``element(of:)``
+- ``recursive(base:maxDepth:_:)``
 - ``AnyGenerator``
 - ``Generators``
 - ``Source``
@@ -55,7 +60,12 @@ Swiftpothesis shrinks the way [Hypothesis](https://hypothesis.readthedocs.io) do
 - ``LinearizableMachine``
 - ``SequentialAdapter``
 - ``checkLinearizability(_:steps:averageSteps:branches:id:settings:sourceLocation:isolation:)``
-- ``Scheduler``
+
+### Concurrency
+
+- <doc:TestingConcurrentCode>
+- ``Scheduling``
+- ``VirtualClock``
 
 ### Reproducing Failures
 
