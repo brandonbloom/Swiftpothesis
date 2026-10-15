@@ -82,7 +82,7 @@ await check(StackMachine(), examples: [
 
 A linearizable machine separates performing a command from predicting and judging it, so the engine can run commands concurrently and then search for a sequential order that explains every response. Postconditions are pure functions rather than `#expect`, because that search evaluates them for many candidate orders.
 
-Checking concurrent runs, ``checkLinearizability(_:steps:averageSteps:branches:id:settings:sourceLocation:isolation:)``, isn't implemented yet. A linearizable machine already runs sequentially:
+Checking concurrent runs, ``checkLinearizability(_:steps:averageSteps:branches:branchSteps:id:settings:sourceLocation:isolation:)``, isn't implemented yet. A linearizable machine already runs sequentially:
 
 ```swift
 await check(QueueMachine().sequential)
@@ -94,4 +94,4 @@ await check(QueueMachine().sequential)
 - ``check(_:examples:steps:averageSteps:id:settings:sourceLocation:isolation:)``
 - ``LinearizableMachine``
 - ``SequentialAdapter``
-- ``checkLinearizability(_:steps:averageSteps:branches:id:settings:sourceLocation:isolation:)``
+- ``checkLinearizability(_:steps:averageSteps:branches:branchSteps:id:settings:sourceLocation:isolation:)``

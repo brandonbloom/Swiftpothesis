@@ -28,6 +28,12 @@ public struct PropertyResult: Sendable {
     /// The seed of the run's random choices.
     public var seed: UInt64
 
+    /// How many valid generated examples recorded each ``label(_:)``.
+    public var labels: [String: Int] = [:]
+
+    /// The highest score seen for each ``target(_:label:)`` label.
+    public var targets: [String: Double] = [:]
+
     /// The shrunk failing example, or nil if the property held.
     public var falsification: Falsification?
 

@@ -59,7 +59,7 @@ Swiftpothesis shrinks the way [Hypothesis](https://hypothesis.readthedocs.io) do
 - ``check(_:examples:steps:averageSteps:id:settings:sourceLocation:isolation:)``
 - ``LinearizableMachine``
 - ``SequentialAdapter``
-- ``checkLinearizability(_:steps:averageSteps:branches:id:settings:sourceLocation:isolation:)``
+- ``checkLinearizability(_:steps:averageSteps:branches:branchSteps:id:settings:sourceLocation:isolation:)``
 
 ### Concurrency
 

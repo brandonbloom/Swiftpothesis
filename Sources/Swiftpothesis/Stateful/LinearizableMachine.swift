@@ -171,7 +171,9 @@ public func checkLinearizability<M: LinearizableMachine>(
                 log.append("\(log.count + 1). \(command) → \(String(reflecting: response))")
                 show()
                 guard machine.postcondition(model, command: command, response: response) else {
-                    Issue.record("Postcondition failed: \(command) returned \(String(reflecting: response)).")
+                    Issue.record(
+                        "Postcondition failed: \(command) returned \(String(reflecting: response))."
+                    )
                     throw LinearizabilityFailure()
                 }
                 model = machine.next(model, after: command, response: response)
@@ -205,19 +207,23 @@ public func checkLinearizability<M: LinearizableMachine>(
                         return (index, results)
                     }
                 }
-                var results = Array(repeating: [(command: M.Command, response: M.Response)](), count: plan.count)
+                var results = Array(
+                    repeating: [(command: M.Command, response: M.Response)](), count: plan.count)
                 for try await (index, branch) in group { results[index] = branch }
                 return results
             }
             for (index, branch) in results.enumerated() {
                 let steps = branch.map { "\($0.command) → \(String(reflecting: $0.response))" }
-                log.append("Branch \(index + 1): " + (steps.isEmpty ? "(nothing)" : steps.joined(separator: "; ")))
+                log.append(
+                    "Branch \(index + 1): "
+                        + (steps.isEmpty ? "(nothing)" : steps.joined(separator: "; ")))
             }
             show()
 
             guard linearizes(machine, model: model, branches: results) else {
                 Issue.record(
-                    "Not linearizable: no sequential order of the concurrent commands explains their responses.")
+                    "Not linearizable: no sequential order of the concurrent commands explains their responses."
+                )
                 throw LinearizabilityFailure()
             }
         } catch {

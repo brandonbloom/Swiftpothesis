@@ -61,8 +61,8 @@ public struct Source: Sendable {
         if count < bounds.lowerBound { return true }
         if count >= bounds.upperBound { return false }
         let extra = Swift.max(average - Double(bounds.lowerBound), 0)
-        let stop = UInt64(Swift.min(Swift.max((256 / (extra + 1)).rounded(), 1), 255))
-        return try choose(atMost: 255, uniformly: true) >= stop
+        let stop = UInt64(Swift.min(Swift.max((65536 / (extra + 1)).rounded(), 1), 65535))
+        return try choose(atMost: 65535, uniformly: true) >= stop
     }
 
     /// Makes a choice between zero and `bound`, inclusive, without favoring small values and the

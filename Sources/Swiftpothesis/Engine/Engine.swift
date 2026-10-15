@@ -119,9 +119,24 @@ struct Driver {
     private enum State {
         case reuse(saved: [ChoiceSequence], index: Int)
         case generate(random: Xoshiro256, discards: Int)
+        /// Hill-climbs the best example for each label in `labels`, after Hypothesis's
+        /// optimiser. For a choice at `index`, it first tries the choice's maximum (`step` 0),
+        /// which lengthens collections and maximizes values, then raises it by `step`, doubling
+        /// while the score improves. When neither helps, it picks another choice. Occasional
+        /// random mutations escape plateaus.
+        case target(
+            random: Xoshiro256, labels: [String], label: Int, attempts: Int, index: Int,
+            step: UInt64)
         case shrink(Shrinker)
         case done
     }
+
+    /// The highest-scoring example seen for each ``target(_:label:)`` label.
+    private(set) var bestTargets: [String: (score: Double, choices: [UInt64])] = [:]
+    /// How many generated test cases drew more choices than allowed.
+    private(set) var overruns = 0
+    /// How many valid examples recorded each ``label(_:)``.
+    private(set) var labelCounts: [String: Int] = [:]
 
     // Gives up when this many test cases in a row are discarded.
     private var maxConsecutiveDiscards: Int { settings.maxExamples * 10 }
@@ -160,8 +175,49 @@ struct Driver {
                 {
                     healthCheck =
                         "Health check failed: \(discards) test cases in a row were discarded by filters or assumptions. Generate valid values directly, or suppress HealthCheck.filterTooMuch."
+                } else if overruns > settings.maxExamples / 2,
+                    !settings.suppressedHealthChecks.contains(.dataTooLarge)
+                {
+                    healthCheck =
+                        "Health check failed: \(overruns) test cases drew more choices than allowed. Generate smaller values, such as by lowering collection counts or recursion depth, or suppress HealthCheck.dataTooLarge."
                 }
-                state = .done
+                let labels = bestTargets.keys.sorted()
+                if settings.phases.contains(.target), !labels.isEmpty {
+                    // Spend up to half again the example budget on climbing, split among labels.
+                    let attempts = Swift.max(settings.maxExamples / 2 / labels.count, 1)
+                    state = .target(
+                        random: Xoshiro256(seed: seed ^ 0x7461_7267_6574), labels: labels, label: 0,
+                        attempts: attempts, index: 0, step: 0)
+                } else {
+                    state = .done
+                }
+            case .target(var random, let labels, let label, let attempts, let index, let step):
+                guard label < labels.count else {
+                    state = .done
+                    continue
+                }
+                guard attempts > 0 else {
+                    let next = Swift.max(settings.maxExamples / 2 / labels.count, 1)
+                    state = .target(
+                        random: random, labels: labels, label: label + 1, attempts: next, index: 0,
+                        step: 0)
+                    continue
+                }
+                var candidate = bestTargets[labels[label]]!.choices
+                if candidate.isEmpty || random.next(upperBound: 4 as UInt64) == 0 {
+                    candidate = Self.mutate(candidate, random: &random)
+                } else {
+                    let index = index % candidate.count
+                    // Replay clamps the maximum to each choice's bound.
+                    candidate[index] =
+                        step == 0 || candidate[index].addingReportingOverflow(step).overflow
+                        ? .max : candidate[index] + step
+                }
+                state = .target(
+                    random: random, labels: labels, label: label, attempts: attempts - 1,
+                    index: index, step: step)
+                // Choices past the candidate's are random, so climbing can grow structure.
+                return Source(prefix: candidate, random: random)
             case .shrink(var shrinker):
                 if let candidate = shrinker.nextCandidate() {
                     state = .shrink(shrinker)
@@ -200,10 +256,45 @@ struct Driver {
         if isGenerating { state = .done }
     }
 
+    /// A small random change to `choices`: nudging one choice up or down, setting it to a random
+    /// value, or zeroing it.
+    private static func mutate(_ choices: [UInt64], random: inout Xoshiro256) -> [UInt64] {
+        guard !choices.isEmpty else { return choices }
+        var mutated = choices
+        let index = Int(random.next(upperBound: UInt64(choices.count)))
+        switch random.next(upperBound: 4 as UInt64) {
+        case 0: mutated[index] &+= 1 + random.next(upperBound: 4 as UInt64)
+        case 1: mutated[index] = mutated[index] > 0 ? mutated[index] - 1 : 0
+        case 2: mutated[index] = random.next()
+        default: mutated[index] = 0
+        }
+        return mutated
+    }
+
+    /// Records a test case's ``target(_:label:)`` scores, keeping the best example per label.
+    /// Returns the labels whose best improved.
+    @discardableResult
+    private mutating func recordTargets(_ targets: [String: Double], choices: [UInt64]) -> Set<
+        String
+    > {
+        var improved: Set<String> = []
+        for (label, score) in targets where score > (bestTargets[label]?.score ?? -.infinity) {
+            bestTargets[label] = (score, choices)
+            improved.insert(label)
+        }
+        return improved
+    }
+
     /// Records the outcome of the test case run from the last source ``next()`` returned.
     ///
-    /// - Parameter description: How the test case's values were described.
-    mutating func record(_ outcome: Outcome, source: Source, description: String = "") {
+    /// - Parameters:
+    ///   - description: How the test case's values were described.
+    ///   - targets: The test case's ``target(_:label:)`` scores.
+    ///   - labels: The test case's ``label(_:)`` labels.
+    mutating func record(
+        _ outcome: Outcome, source: Source, description: String = "",
+        targets: [String: Double] = [:], labels: Set<String> = []
+    ) {
         switch state {
         case .reuse(let saved, let index):
             if let counterexample = saved[index].counterexample, counterexample != description {
@@ -220,12 +311,38 @@ struct Driver {
             switch outcome {
             case .passed:
                 examples += 1
+                for label in labels { labelCounts[label, default: 0] += 1 }
+                recordTargets(targets, choices: source.choices)
                 state = .generate(random: random, discards: 0)
-            case .discarded:
+            case .discarded(let rejection):
+                if rejection.reason == .overrun { overruns += 1 }
                 state = .generate(random: random, discards: discards + 1)
             case .failed(let failure):
                 foundFailure(source, failure)
             }
+        case .target(let random, let labels, let label, let attempts, let index, let step):
+            if case .failed(let failure) = outcome {
+                foundFailure(source, failure)
+                return
+            }
+            var improved = false
+            if case .passed = outcome {
+                improved = recordTargets(targets, choices: source.choices).contains(labels[label])
+            }
+            // After a jump to the maximum, move on if it helped, and otherwise climb from the
+            // current value; double the step while climbing helps; then pick another choice.
+            var random = random
+            let other = Int(random.next(upperBound: UInt64(Swift.max(source.choices.count, 1))))
+            let (nextIndex, nextStep): (Int, UInt64) =
+                switch (step, improved) {
+                case (0, true): (other, 0)
+                case (0, false): (index, 1)
+                case (_, true): (index, step &* 2)
+                case (_, false): (other, 0)
+                }
+            state = .target(
+                random: random, labels: labels, label: label, attempts: attempts,
+                index: nextIndex, step: nextStep)
         case .shrink(var shrinker):
             if case .failed(let failure) = outcome {
                 shrinker.record((source.choices, source.spans, failure))
@@ -334,7 +451,8 @@ struct Engine {
             slowest = max(slowest, run.elapsed)
             driver.record(
                 outcome(run, deadline: deadline), source: testCase.close(),
-                description: counterexample(of: context))
+                description: counterexample(of: context), targets: context.targets,
+                labels: context.labels)
         }
         for stale in driver.staleReplays {
             Issue.record(
@@ -513,6 +631,24 @@ struct Engine {
         if let healthCheck = driver.healthCheck {
             Issue.record(Comment(rawValue: healthCheck), sourceLocation: sourceLocation)
         }
+        var result = finishResult(driver, context: context, requireError: requireError)
+        result.labels = driver.labelCounts
+        result.targets = driver.bestTargets.mapValues(\.score)
+        if !driver.labelCounts.isEmpty, Test.current != nil {
+            let total = Swift.max(driver.examples, 1)
+            let lines = driver.labelCounts.sorted { $0.value > $1.value }.map {
+                "\($0.key): \($0.value) of \(total) (\(Int((100 * Double($0.value) / Double(total)).rounded()))%)"
+            }
+            Attachment.record(
+                lines.joined(separator: "\n"), named: "Property statistics.txt",
+                sourceLocation: sourceLocation)
+        }
+        return result
+    }
+
+    private func finishResult(
+        _ driver: Driver, context: PropertyContext?, requireError: (any Error)?
+    ) -> PropertyResult {
         guard let found = driver.found, let context else {
             return PropertyResult(
                 examples: driver.examples, seed: driver.seed, falsification: nil,

@@ -133,17 +133,19 @@ public func note(_ message: @autoclosure () -> String) {
 
 /// Counts the current test case under a label, for the run's statistics.
 ///
-/// Labels show how generated values are distributed, such as how many arrays were empty.
+/// Labels show how generated values are distributed, such as how many arrays were empty. The
+/// counts appear in ``PropertyResult/labels``, and in a "Property statistics" attachment on the
+/// test.
 public func label(_ label: String) {
     PropertyContext.current?.labels.insert(label)
 }
 
 /// Guides generation toward test cases with higher scores.
 ///
-/// In the ``Phase/target`` phase, the engine mutates the highest-scoring test cases for each
-/// label, hill climbing toward examples that maximize the score, such as a queue's peak length.
-///
-/// TODO: Implement the target phase. Scores are recorded but don't yet steer generation.
+/// In the ``Phase/target`` phase, after generating, the engine mutates the highest-scoring
+/// test case for each label, keeping mutations that score higher. This hill climbs toward
+/// examples that maximize the score, such as a queue's peak length, and finds failures that
+/// only extreme inputs reach. The best scores appear in ``PropertyResult/targets``.
 public func target(_ score: Double, label: String = "") {
     PropertyContext.current?.targets[label] = score
 }

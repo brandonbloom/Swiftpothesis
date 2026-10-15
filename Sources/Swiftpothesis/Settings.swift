@@ -139,7 +139,9 @@ public enum Phase: Sendable, CaseIterable {
     case reuse
     /// Generates new random examples.
     case generate
-    /// Steers generation toward examples that maximize ``target(_:label:)`` scores.
+    /// Steers generation toward examples that maximize ``target(_:label:)`` scores, by mutating
+    /// the best-scoring example for each label. It runs after ``generate``, with up to half again
+    /// ``Settings/maxExamples`` test cases.
     case target
     /// Simplifies a failing example.
     case shrink
@@ -151,9 +153,8 @@ public enum Phase: Sendable, CaseIterable {
 public enum HealthCheck: Sendable, CaseIterable {
     /// Most test cases were discarded by filters or assumptions.
     case filterTooMuch
-    /// Generating test cases took most of the run's time.
-    case tooSlow
-    /// Test cases routinely exceeded the engine's limit on choices.
+    /// More than half as many test cases as ``Settings/maxExamples`` exceeded the engine's
+    /// limit on choices, such as from unbounded recursion or very large collections.
     case dataTooLarge
 }
 
