@@ -86,6 +86,8 @@ final class PropertyContext: @unchecked Sendable {
     var interleaving: [String] = []
     /// How many jobs ran outside the scheduler's control.
     var escapedJobs = 0
+    /// The arguments the explain phase found the failure doesn't depend on, counting from one.
+    var freeArguments: [Int] = []
     var notes: [String] = []
     var labels: Set<String> = []
     var targets: [String: Double] = [:]
@@ -104,6 +106,8 @@ struct Driver {
     let seed: UInt64
     private(set) var examples = 0
     private(set) var found: (choices: [UInt64], failure: Failure)?
+    /// The spans of `found`'s choices.
+    private(set) var foundSpans: [Range<Int>] = []
     /// The failure first found, before shrinking.
     private(set) var original: (choices: [UInt64], failure: Failure)?
     /// Failing examples that shrinking left behind when it moved to a failure at another origin.
@@ -224,6 +228,7 @@ struct Driver {
                     return Source(prefix: candidate, random: nil)
                 }
                 found = (shrinker.choices, shrinker.failure)
+                foundSpans = shrinker.spans
                 leftBehind = shrinker.leftBehind
                 shrinkingRanOutOfAttempts = shrinker.ranOutOfAttempts
                 state = .done
@@ -357,6 +362,7 @@ struct Driver {
 
     private mutating func foundFailure(_ source: Source, _ failure: Failure) {
         found = (source.choices, failure)
+        foundSpans = source.spans
         original = (source.choices, failure)
         state =
             settings.phases.contains(.shrink)
@@ -377,6 +383,8 @@ struct Engine {
     let sourceLocation: SourceLocation
     /// The key under which this property's failures are saved.
     private let databaseKey: String
+    /// Whether the property draws one value per argument, so the explain phase can vary each.
+    var explainsArguments = false
     /// The property's identity independent of the machine, for derandomized seeds.
     private let seedKey: String
 
@@ -468,8 +476,13 @@ struct Engine {
                 severity: .warning, sourceLocation: sourceLocation)
         }
         guard let found = driver.found else { return finish(driver) }
+        let freeArguments = await explain(
+            found.choices, spans: driver.foundSpans, origin: found.failure.origin,
+            seed: driver.seed,
+            test, isolation: isolation)
         // Replay the shrunk failure with its issues recorded.
         let context = PropertyContext()
+        context.freeArguments = freeArguments
         let testCase = TestCase(Source(prefix: found.choices, random: nil))
         let replay = await execute(
             test, testCase, context, deadline: settings.deadline.map { $0 * 1.25 },
@@ -584,6 +597,52 @@ struct Engine {
         }
     }
 
+    /// Finds the arguments of a shrunk failure that it doesn't depend on: those that, replaced
+    /// with random values in each of several tries, still fail. Hypothesis's explain phase does
+    /// the same for each argument.
+    private func explain(
+        _ choices: [UInt64], spans: [Range<Int>], origin: String, seed: UInt64,
+        _ test: TestFunction,
+        isolation: isolated (any Actor)?
+    ) async -> [Int] {
+        guard explainsArguments, settings.phases.contains(.explain) else { return [] }
+        // The arguments are the spans directly inside the span of the whole draw.
+        guard let whole = spans.filter({ $0.lowerBound == 0 }).max(by: { $0.count < $1.count })
+        else { return [] }
+        let inside = Set(spans.filter { $0 != whole && whole.contains($0) })
+        let arguments = inside.filter { span in
+            !inside.contains { $0 != span && $0.contains(span) }
+        }.sorted { $0.lowerBound < $1.lowerBound }
+        guard arguments.count >= 2 else { return [] }
+        var random = Xoshiro256(seed: seed ^ 0x6578_706c_6169_6e)
+        var free: [Int] = []
+        for (index, argument) in arguments.enumerated() where !argument.isEmpty {
+            var alwaysFails = true
+            // Enough tries that an argument the failure merely usually tolerates is rarely
+            // reported as free.
+            for _ in 0..<20 {
+                var source = Source(
+                    prefix: Array(choices[..<argument.lowerBound]),
+                    random: Xoshiro256(seed: random.next()))
+                source.spliceStart = argument.lowerBound
+                source.spliceTail = Array(choices[argument.upperBound...])
+                let testCase = TestCase(source)
+                let run = await execute(
+                    test, testCase, PropertyContext(), deadline: settings.deadline,
+                    capturing: true, isolation: isolation)
+                _ = testCase.close()
+                guard case .failed(let failure) = outcome(run, deadline: settings.deadline),
+                    failure.origin == origin
+                else {
+                    alwaysFails = false
+                    break
+                }
+            }
+            if alwaysFails { free.append(index + 1) }
+        }
+        return free
+    }
+
     /// How a test case's values are described in reports: its arguments, or its draws.
     private func counterexample(of context: PropertyContext) -> String {
         guard context.description.isEmpty else { return context.description }
@@ -665,6 +724,18 @@ struct Engine {
             context.description.isEmpty
                 ? "Counterexample:\n\(counterexample)" : "Counterexample: \(counterexample)")
         lines += context.notes.map { "Note: \($0)" }
+        if !context.freeArguments.isEmpty {
+            let names = context.freeArguments.map(String.init)
+            let list =
+                names.count == 1
+                ? "argument \(names[0])"
+                : names.count == 2
+                    ? "arguments \(names[0]) and \(names[1])"
+                    : "arguments \(names.dropLast().joined(separator: ", ")), and \(names.last!)"
+            lines.append(
+                "Explanation: the failure doesn't depend on \(list); it failed the same way with random values for each, in all 20 tries."
+            )
+        }
         if !context.interleaving.isEmpty {
             lines.append("Interleaving: \(context.interleaving.joined(separator: " → "))")
         }

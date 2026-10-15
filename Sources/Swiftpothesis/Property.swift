@@ -169,9 +169,9 @@ private func check<G: Generator>(
                 try await property(value)
             }
         }
-        return await Engine(id: id, settings: settings, sourceLocation: sourceLocation).run(
-            isolation: isolation, explicit: explicit
-        ) {
+        var engine = Engine(id: id, settings: settings, sourceLocation: sourceLocation)
+        engine.explainsArguments = true
+        return await engine.run(isolation: isolation, explicit: explicit) {
             testCase, context in
             let value = try testCase.draw(generator)
             context.description = String(reflecting: value)

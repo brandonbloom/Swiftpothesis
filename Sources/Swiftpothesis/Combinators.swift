@@ -291,7 +291,10 @@ public enum Generators {
 
         public func generate(from source: inout Source) throws(Rejection) -> (repeat (each G).Value)
         {
-            (repeat try source.draw(each generators))
+            // Each element is a span, so the explain phase can vary one at a time.
+            (repeat try source.span { (source) throws(Rejection) in
+                try source.draw(each generators)
+            })
         }
     }
 }

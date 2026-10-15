@@ -14,7 +14,11 @@ public struct Source: Sendable {
     // Regions of `choices` produced by one `span(_:)` call, in the order they closed.
     var spans: [Range<Int>] = []
     // Recorded choices replayed before any fresh ones are made.
-    let prefix: [UInt64]
+    var prefix: [UInt64]
+    // For explaining a failure: when the span that starts at `spliceStart` closes, replay
+    // `spliceTail` from there on, so one span's choices are fresh and the rest are recorded.
+    var spliceStart: Int?
+    var spliceTail: [UInt64] = []
     // Makes fresh choices once the prefix runs out. Nil while shrinking, when the simplest choice
     // (zero) is made instead, so that deleting choices tends to delete structure.
     var random: Xoshiro256?
@@ -92,6 +96,11 @@ public struct Source: Sendable {
         let start = choices.count
         let value = try body(&self)
         spans.append(start..<choices.count)
+        if start == spliceStart {
+            prefix = choices + spliceTail
+            random = nil
+            spliceStart = nil
+        }
         return value
     }
 }

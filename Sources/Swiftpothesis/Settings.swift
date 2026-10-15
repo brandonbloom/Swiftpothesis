@@ -145,7 +145,10 @@ public enum Phase: Sendable, CaseIterable {
     case target
     /// Simplifies a failing example.
     case shrink
-    /// Reports which parts of a shrunk example can vary without the property passing.
+    /// Reports which arguments of a shrunk failure it doesn't depend on: each argument is
+    /// replaced with random values several times, and if every try still fails, the report says
+    /// so. It applies to ``forAll(_:examples:id:settings:sourceLocation:isolation:_:)`` with two
+    /// or more arguments.
     case explain
 }
 

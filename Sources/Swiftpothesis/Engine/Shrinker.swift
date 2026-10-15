@@ -262,7 +262,7 @@ func isSimpler(_ a: [UInt64], than b: [UInt64]) -> Bool {
 
 extension Range where Bound == Int {
     /// Whether this range contains all of `other`.
-    fileprivate func contains(_ other: Range<Int>) -> Bool {
+    func contains(_ other: Range<Int>) -> Bool {
         lowerBound <= other.lowerBound && other.upperBound <= upperBound
     }
 }
