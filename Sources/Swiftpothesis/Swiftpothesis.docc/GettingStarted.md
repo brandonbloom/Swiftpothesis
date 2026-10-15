@@ -19,7 +19,7 @@ targets: [
 
 ## Write a property
 
-A property is a Swift Testing test that calls ``forAll(_:id:settings:sourceLocation:isolation:_:)`` with generators for its inputs. Check the inputs with `#expect` and `#require`, as in any test:
+A property is a Swift Testing test that calls ``forAll(_:examples:id:settings:sourceLocation:isolation:_:)`` with generators for its inputs. Check the inputs with `#expect` and `#require`, as in any test:
 
 ```swift
 import Swiftpothesis

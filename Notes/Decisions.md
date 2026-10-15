@@ -177,6 +177,21 @@ Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary
 
 **Alternatives.** Command objects (fast-check), rule methods with bundles (Hypothesis; would need a macro), a single protocol with optional linearizability (makes differential tests invent a `Response`).
 
+## 10. Explicit examples
+
+**Decision.** `forAll(…, examples: [values])` and `check(machine, examples: ["name": [commands]])` run hand-written examples before anything is replayed or generated, in a new `explicit` phase. A failing example is reported as is ("Explicit example "overflow" failed."), with its own issues recorded normally, and ends the run without shrinking. Passing examples don't count toward `maxExamples`.
+
+**Why.** FBF turned each shrunk failure into a hand-written regression test. Examples pin values or commands rather than choices, so they survive generator changes, unlike saved choice sequences. Hypothesis's `@example` is the precedent.
+
+**Related changes from FBF's second review.**
+- `SequentialMachine.commands(for:)` is `async throws`, since listing commands can read files; an error fails the test case instead of being hidden.
+- `check`'s `steps` defaults to `0...100`, so a failure that needs only `finish` shrinks to no commands. Skipped commands count toward `steps` and `averageSteps`.
+- `SWIFTPOTHESIS_MAX_SHRINK_ATTEMPTS` joins the environment overrides, for soak runs.
+
+**Deferred.**
+- `SWIFTPOTHESIS_REPLAY=<choices>`, to replay a reported failure without its database: one more global input that applies to every property in a run. Pasting the counterexample as an explicit example covers most needs.
+- Detecting stale replays, such as saving each counterexample's description with its choices and flagging a replay that describes differently.
+
 ## Versioning
 
 Swiftpothesis follows [StableVer](https://github.com/brandonbloom/stablever). Until 1.0, every feature is alpha: subject to breaking changes at any time.

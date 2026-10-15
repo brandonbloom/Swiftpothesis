@@ -39,8 +39,9 @@ import Testing
 /// }
 /// ```
 ///
-/// Commands should be plain data, such as an enum, rather than closures: they must be `Sendable`,
-/// and their descriptions are the failure report.
+/// Commands are data, such as an enum, not closures: they must be `Sendable`, and their
+/// descriptions are the failure report, so a report says exactly what ran. Usually that means an
+/// enum of commands and a `run` that interprets it.
 ///
 /// Running commands one at a time is a restriction, not just a convenience: because `run` both
 /// performs and checks a command, the engine can't evaluate a command's outcome without running
@@ -60,13 +61,17 @@ public protocol SequentialMachine {
     func makeState() async throws -> State
 
     /// The commands that may run next, given the current state.
-    func commands(for state: State) -> Commands
+    ///
+    /// The generator may depend on anything in the state, including the real system, such as
+    /// which items exist. An error thrown here fails the test case, like one thrown by ``run(_:state:)``.
+    func commands(for state: State) async throws -> Commands
 
     /// Performs a command and checks its results, with `#expect`, `#require`, or by throwing.
     ///
     /// Shrinking removes earlier commands, so a command may be replayed in a state where it no
     /// longer applies, such as one naming an item that no longer exists. Call ``skip(_:)`` to
-    /// skip it; skipped commands are marked in failure reports.
+    /// skip it; skipped commands are marked in failure reports, and still count toward the
+    /// sequence's length.
     func run(_ command: Command, state: inout State) async throws
 
     /// Checks properties that hold in every state. Runs after every command. Defaults to doing
@@ -100,11 +105,26 @@ struct SkippedCommand: Error {
 
 /// Tests a system under generated sequences of commands, one at a time.
 ///
+/// Before generating any sequences, `check` runs each of `examples`, in order, as given. Use them
+/// to keep earlier counterexamples as regression tests: they're commands rather than recorded
+/// choices, so they survive changes to ``SequentialMachine/commands(for:)``.
+///
+/// ```swift
+/// await check(StackMachine(), examples: [
+///     "pop when empty": [.pop],
+///     "overflow": [.push(0), .push(0), .push(0), .push(1), .pop],
+/// ])
+/// ```
+///
 /// - Parameters:
 ///   - machine: The system to test.
-///   - steps: The allowed number of commands per test case.
+///   - examples: Named command sequences to run before any generated ones. A failing example
+///     is reported without shrinking.
+///   - steps: The allowed number of commands per test case, counting skipped ones. The default
+///     allows zero, so a failure that needs only ``SequentialMachine/finish(state:)`` shrinks to
+///     no commands.
 ///   - averageSteps: The number of commands to aim for. Some bugs need long histories; raise it
-///     to find them, at the cost of slower test cases. Defaults to 20, within `steps`.
+///     to find them, at the cost of slower test cases.
 ///   - id: Identifies this check within its test, so its saved failures replay. Defaults to
 ///     its position among the test's properties.
 ///   - settings: Options for this test. Defaults to the settings of the running test.
@@ -113,42 +133,65 @@ struct SkippedCommand: Error {
 @discardableResult
 public func check<M: SequentialMachine>(
     _ machine: M,
-    steps: ClosedRange<Int> = 1...100,
+    examples: KeyValuePairs<String, [M.Command]> = [:],
+    steps: ClosedRange<Int> = 0...100,
     averageSteps: Double = 20,
     id: String? = nil,
     settings: Settings = .current,
     sourceLocation: SourceLocation = #_sourceLocation,
     isolation: isolated (any Actor)? = #isolation
 ) async -> PropertyResult {
-    await Engine(id: id, settings: settings, sourceLocation: sourceLocation).run(
-        isolation: isolation
+    let explicit = examples.map { name, commands in
+        ExplicitExample(label: "\"\(name)\"") { context in
+            var remaining = commands[...]
+            try await runSequence(machine, context: context) { _ in remaining.popFirst() }
+        }
+    }
+    return await Engine(id: id, settings: settings, sourceLocation: sourceLocation).run(
+        isolation: isolation, explicit: explicit
     ) {
         testCase, context in
-        var state = try await machine.makeState()
-        var log: [String] = []
-        func show(_ line: String) {
-            log.append(line)
-            context.description = "\n" + log.joined(separator: "\n")
+        try await runSequence(machine, context: context) { state in
+            guard try testCase.continues(count: context.steps, bounds: steps, average: averageSteps)
+            else { return nil }
+            return try testCase.draw(try await machine.commands(for: state))
         }
-        do {
-            while try testCase.continues(count: log.count, bounds: steps, average: averageSteps) {
-                let command = try testCase.draw(machine.commands(for: state))
-                do {
-                    show("\(log.count + 1). \(command)")
-                    try await machine.run(command, state: &state)
-                } catch let skipped as SkippedCommand {
-                    log[log.count - 1] += " (skipped\(skipped.reason.map { ": \($0)" } ?? ""))"
-                    context.description = "\n" + log.joined(separator: "\n")
-                    continue
-                }
-                try await machine.checkInvariants(state: state)
-            }
-            show("(finish)")
-            try await machine.finish(state: &state)
-        } catch {
-            await machine.tearDown(state)
-            throw error
-        }
-        await machine.tearDown(state)
     }
+}
+
+/// Runs one sequence of commands against a fresh state, logging each step in the context, then
+/// finishes and tears down the state.
+///
+/// - Parameter next: The next command to run given the current state, or nil to finish.
+private func runSequence<M: SequentialMachine>(
+    _ machine: M, context: PropertyContext,
+    next: (M.State) async throws -> M.Command?
+) async throws {
+    var state = try await machine.makeState()
+    var log: [String] = []
+    func show(_ line: String) {
+        log.append(line)
+        context.steps = log.count
+        context.description = "\n" + log.joined(separator: "\n")
+    }
+    do {
+        while let command = try await next(state) {
+            show("\(log.count + 1). \(command)")
+            do {
+                try await machine.run(command, state: &state)
+            } catch let skipped as SkippedCommand {
+                log[log.count - 1] += " (skipped\(skipped.reason.map { ": \($0)" } ?? ""))"
+                context.description = "\n" + log.joined(separator: "\n")
+                continue
+            }
+            try await machine.checkInvariants(state: state)
+        }
+        log.append("(finish)")
+        context.description = "\n" + log.joined(separator: "\n")
+        try await machine.finish(state: &state)
+    } catch {
+        await machine.tearDown(state)
+        throw error
+    }
+    await machine.tearDown(state)
 }

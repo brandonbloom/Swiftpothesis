@@ -2,7 +2,7 @@ import Synchronization
 
 /// The running test case: a source of choices that the property can draw from at any point.
 ///
-/// Values from ``forAll(_:id:settings:sourceLocation:isolation:_:)``'s generators are drawn before
+/// Values from ``forAll(_:examples:id:settings:sourceLocation:isolation:_:)``'s generators are drawn before
 /// the property runs. When later values depend on what the code under test did, draw them from
 /// the test case instead, while the property runs:
 ///

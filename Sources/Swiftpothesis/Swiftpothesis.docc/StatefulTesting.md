@@ -16,7 +16,7 @@ Swiftpothesis offers two kinds of state machine. They aren't a hierarchy: each a
 | Commands generated from | The whole state, including the real system | The model |
 | Each command | Performed and checked in one step, with `#expect` | Applied, predicted, and judged in separate steps |
 | Checks concurrent runs | No | Yes |
-| Runs sequentially | ``check(_:steps:averageSteps:id:settings:sourceLocation:isolation:)`` | Through ``LinearizableMachine/sequential`` |
+| Runs sequentially | ``check(_:examples:steps:averageSteps:id:settings:sourceLocation:isolation:)`` | Through ``LinearizableMachine/sequential`` |
 
 ## Sequential machines
 
@@ -70,6 +70,14 @@ The state needn't include a model. To test replicas against each other, keep the
 
 Some bugs need long histories. Raise `averageSteps` to find them, at the cost of slower test cases.
 
+Keep a shrunk failure as a regression test by passing its commands as a named example, which runs before anything is generated:
+
+```swift
+await check(StackMachine(), examples: [
+    "overflow": [.push(0), .push(0), .push(0), .push(1), .pop],
+])
+```
+
 ## Linearizable machines
 
 A linearizable machine separates performing a command from predicting and judging it, so the engine can run commands concurrently and then search for a sequential order that explains every response. Postconditions are pure functions rather than `#expect`, because that search evaluates them for many candidate orders.
@@ -83,7 +91,7 @@ await check(QueueMachine().sequential)
 ## Topics
 
 - ``SequentialMachine``
-- ``check(_:steps:averageSteps:id:settings:sourceLocation:isolation:)``
+- ``check(_:examples:steps:averageSteps:id:settings:sourceLocation:isolation:)``
 - ``LinearizableMachine``
 - ``SequentialAdapter``
 - ``checkLinearizability(_:steps:averageSteps:branches:id:settings:sourceLocation:isolation:)``

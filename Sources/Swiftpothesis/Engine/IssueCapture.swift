@@ -4,11 +4,13 @@ import Testing
 /// Runs `body` on `isolation`, holding back the Swift Testing issues it records instead of
 /// reporting them, and returns them along with any error it throws.
 ///
+/// With `holdingBack` false, issues are reported as usual and also returned.
+///
 /// Swift Testing has no direct API for this. Swift 6.2's issue-handling traits can drop issues,
 /// though, and their `provideScope(for:testCase:performing:)` is public, so this applies one
 /// to a block instead of a whole test.
 func withIssuesCaptured(
-    isolation: isolated (any Actor)?, _ body: () async throws -> Void
+    holdingBack: Bool = true, isolation: isolated (any Actor)?, _ body: () async throws -> Void
 ) async -> (issues: [Issue], error: (any Error)?) {
     guard let test = Test.current else {
         // Outside Swift Testing there are no issues to capture; only errors signal failure.
@@ -23,7 +25,7 @@ func withIssuesCaptured(
     let thrown = Mutex<(any Error)?>(nil)
     let trait = IssueHandlingTrait.compactMapIssues { issue in
         issues.withLock { $0.append(issue) }
-        return nil
+        return holdingBack ? nil : issue
     }
     // `performing` must be @Sendable, but `body` isn't. It's safe to smuggle across: the
     // trait calls `performing` exactly once, before returning, and `body` runs back on the

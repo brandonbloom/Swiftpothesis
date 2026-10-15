@@ -126,7 +126,7 @@ struct StateMachineTests {
             func finish(state: inout Int) async throws { #expect(Bool(false)) }
         }
         let issues = await failures {
-            await check(AlwaysSkips())
+            await check(AlwaysSkips(), steps: 1...100)
         }
         #expect(issues.last?.contains("1. pop() (skipped: empty)\n(finish)") == true)
     }
@@ -146,6 +146,48 @@ struct StateMachineTests {
         let recorded = box.lengths.withLock { $0 }
         let mean = Double(recorded.reduce(0, +)) / Double(recorded.count)
         #expect((25...60).contains(mean))
+    }
+
+    @Test func finishAloneIsTheMinimalCase() async {
+        struct NeverConverges: SequentialMachine {
+            func makeState() -> Int { 0 }
+            func commands(for state: Int) -> some Generator<StackCommand> { .constant(.pop) }
+            func run(_ command: StackCommand, state: inout Int) async throws {}
+            func finish(state: inout Int) async throws { #expect(Bool(false)) }
+        }
+        let issues = await failures {
+            await check(NeverConverges())
+        }
+        #expect(issues.last?.contains("Counterexample: \n(finish)") == true)
+    }
+
+    @Test func commandGeneratorsCanThrow() async {
+        struct BrokenListing: SequentialMachine {
+            struct ListingFailed: Error {}
+            func makeState() -> Int { 0 }
+            func commands(for state: Int) throws -> Generators.Constant<StackCommand> {
+                throw ListingFailed()
+            }
+            func run(_ command: StackCommand, state: inout Int) async throws {}
+        }
+        let issues = await failures {
+            await check(BrokenListing(), steps: 1...10)
+        }
+        #expect(issues.contains { $0.contains("ListingFailed") })
+    }
+
+    @Test func namedExamplesRunFirstAsGiven() async {
+        let issues = await failures {
+            await check(
+                StackMachine(),
+                examples: [
+                    "fine": [.push(1), .pop],
+                    "overflow": [.push(0), .push(0), .push(0), .push(1), .pop],
+                ])
+        }
+        let summary = issues.last ?? ""
+        #expect(summary.contains("Explicit example \"overflow\" failed."))
+        #expect(summary.contains("4. push(1)\n5. pop()\n(finish)"))
     }
 
     @Test func linearizableMachinesRunSequentially() async {

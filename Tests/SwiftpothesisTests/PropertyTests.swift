@@ -70,6 +70,20 @@ struct PropertyTests {
         #expect(issues.last?.contains("Counterexample: 4") == true)
     }
 
+    @Test func explicitExamplesRunFirstWithoutShrinking() async {
+        let issues = await failures {
+            await forAll(Int.arbitrary(in: 0...10), examples: [3, 1234]) { x in
+                #expect(x <= 10)
+            }
+        }
+        #expect(issues.last == "Explicit example 1234 failed.")
+    }
+
+    @Test func passingExplicitExamplesDontStopGeneration() async {
+        let result = await forAll(Bool.arbitrary, examples: [true]) { _ in }
+        #expect(result.examples == 100)
+    }
+
     @Test func assumptionsDiscard() async {
         await forAll(Int.arbitrary(in: 0...100)) { x in
             try assume(x % 2 == 0)
@@ -108,13 +122,19 @@ struct PropertyTests {
     }
 }
 
-/// Runs `body`, expecting it to record issues, and returns their descriptions.
+/// Runs `body`, expecting it to record issues, and returns their comments, or the errors they
+/// caught.
+///
+/// The matcher also sees issues that Swiftpothesis holds back, such as the `#require` failure
+/// behind `PropertyResult.require()`, so that one is left out.
 func failures(_ body: () async -> Void) async -> [String] {
     let recorded = Mutex<[String]>([])
     await withKnownIssue {
         await body()
     } matching: { issue in
-        recorded.withLock { $0.append(issue.comments.map(\.rawValue).joined(separator: "\n")) }
+        var text = issue.comments.map(\.rawValue).joined(separator: "\n")
+        if case .errorCaught(let error) = issue.kind { text += "\(error)" }
+        if text != "Property falsified" { recorded.withLock { $0.append(text) } }
         return true
     }
     return recorded.withLock { $0 }

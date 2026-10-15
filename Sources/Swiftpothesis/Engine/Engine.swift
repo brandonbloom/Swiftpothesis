@@ -65,12 +65,22 @@ enum PropertyIndex {
     }
 }
 
+/// A hand-written example to run before any generated ones.
+struct ExplicitExample {
+    /// How the example is shown in reports, such as its values or its name.
+    var label: String
+    /// Runs the property on the example, describing it in the context.
+    var run: (PropertyContext) async throws -> Void
+}
+
 /// Per-test-case state that ``note(_:)``, ``label(_:)``, and ``target(_:label:)`` write to.
 final class PropertyContext: @unchecked Sendable {
     /// The generated values, as shown in a failure report.
     var description = ""
     /// Every value drawn from the test case, in order.
     var draws: [String] = []
+    /// The number of commands a state machine has run, including skipped ones.
+    var steps = 0
     var notes: [String] = []
     var labels: Set<String> = []
     var targets: [String: Double] = [:]
@@ -254,7 +264,14 @@ struct Engine {
         databaseKey = "\(sourceLocation.filePath)|\(seedKey)"
     }
 
-    func run(isolation: isolated (any Actor)?, _ test: TestFunction) async -> PropertyResult {
+    func run(
+        isolation: isolated (any Actor)?, explicit: [ExplicitExample] = [], _ test: TestFunction
+    ) async -> PropertyResult {
+        if settings.phases.contains(.explicit) {
+            for example in explicit {
+                if let result = await runExplicit(example, isolation: isolation) { return result }
+            }
+        }
         var driver = Driver(settings: settings, databaseKey: databaseKey, seedKey: seedKey)
         let clock = ContinuousClock()
         let start = clock.now
@@ -311,6 +328,39 @@ struct Engine {
         }
         let required = await withIssuesCaptured(isolation: isolation) { try requireFailure() }
         return finish(driver, context: context, requireError: required.error)
+    }
+
+    /// Runs an explicit example with its issues reported as usual, returning a falsified result
+    /// if it fails.
+    private func runExplicit(
+        _ example: ExplicitExample, isolation: isolated (any Actor)?
+    ) async -> PropertyResult? {
+        let context = PropertyContext()
+        let run = await withIssuesCaptured(holdingBack: false, isolation: isolation) {
+            try await PropertyContext.$current.withValue(context) { try await example.run(context) }
+        }
+        if run.error is Rejection {
+            Issue.record(
+                "Explicit example \(example.label) was discarded by a filter or assumption.",
+                severity: .warning, sourceLocation: sourceLocation)
+            return nil
+        }
+        guard !run.issues.isEmpty || run.error != nil else { return nil }
+        if let error = run.error { recordReplayError(error) }
+        var lines = ["Explicit example \(example.label) failed."]
+        if !context.description.isEmpty, context.description != example.label {
+            lines.append("Counterexample: \(context.description)")
+        }
+        lines += context.notes.map { "Note: \($0)" }
+        Issue.record(
+            Comment(rawValue: lines.joined(separator: "\n")), sourceLocation: sourceLocation)
+        let required = await withIssuesCaptured(isolation: isolation) { try requireFailure() }
+        return PropertyResult(
+            examples: 0, seed: 0,
+            falsification: .init(
+                counterexample: context.description.isEmpty ? example.label : context.description,
+                notes: context.notes, choices: ChoiceSequence([])),
+            requireError: required.error)
     }
 
     /// Runs one test case on `isolation`, cancelling it if it runs past `deadline`, and measures

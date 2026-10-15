@@ -23,6 +23,9 @@ import Testing
 ///
 /// - Parameters:
 ///   - generators: The generators for the property's arguments.
+///   - examples: Arguments to test before any generated ones, such as earlier counterexamples
+///     kept as regression tests. They're values, not choices, so they survive changes to the
+///     generators. A failing example is reported without shrinking.
 ///   - id: Identifies this property within its test, so its saved failures replay. Defaults
 ///     to the property's position among the test's properties.
 ///   - settings: Options for this property. Defaults to the settings of the running test.
@@ -34,6 +37,7 @@ import Testing
 @discardableResult
 public func forAll<each G: Generator>(
     _ generators: repeat each G,
+    examples: [(repeat (each G).Value)] = [],
     id: String? = nil,
     settings: Settings = .current,
     sourceLocation: SourceLocation = #_sourceLocation,
@@ -41,8 +45,8 @@ public func forAll<each G: Generator>(
     _ property: (repeat (each G).Value) async throws -> Void
 ) async -> PropertyResult {
     await check(
-        zip(repeat each generators), id: id, settings: settings, sourceLocation: sourceLocation,
-        isolation: isolation
+        zip(repeat each generators), examples: examples, id: id, settings: settings,
+        sourceLocation: sourceLocation, isolation: isolation
     ) { (values: (repeat (each G).Value)) in
         try await property(repeat each values)
     }
@@ -58,9 +62,10 @@ public func forAll<each G: Generator>(
 /// }
 /// ```
 ///
-/// See ``forAll(_:id:settings:sourceLocation:isolation:_:)`` for details.
+/// See ``forAll(_:examples:id:settings:sourceLocation:isolation:_:)`` for details.
 @discardableResult
 public func forAll<each T: Arbitrary>(
+    examples: [(repeat each T)] = [],
     id: String? = nil,
     settings: Settings = .current,
     sourceLocation: SourceLocation = #_sourceLocation,
@@ -68,8 +73,8 @@ public func forAll<each T: Arbitrary>(
     _ property: (repeat each T) async throws -> Void
 ) async -> PropertyResult {
     await check(
-        zip(repeat (each T).arbitrary), id: id, settings: settings, sourceLocation: sourceLocation,
-        isolation: isolation
+        zip(repeat (each T).arbitrary), examples: examples, id: id, settings: settings,
+        sourceLocation: sourceLocation, isolation: isolation
     ) { (values: (repeat each T)) in
         try await property(repeat each values)
     }
@@ -90,7 +95,7 @@ public func forAll<each T: Arbitrary>(
 /// }
 /// ```
 ///
-/// See ``forAll(_:id:settings:sourceLocation:isolation:_:)`` for details.
+/// See ``forAll(_:examples:id:settings:sourceLocation:isolation:_:)`` for details.
 @discardableResult
 public func forAll(
     id: String? = nil,
@@ -147,18 +152,28 @@ public func target(_ score: Double, label: String = "") {
 // which crashes at run time ("freed pointer was not the last allocation") as of Swift 6.4.
 private func check<G: Generator>(
     _ generator: G,
+    examples: [G.Value],
     id: String?,
     settings: Settings,
     sourceLocation: SourceLocation,
     isolation: isolated (any Actor)?,
     _ property: (G.Value) async throws -> Void
 ) async -> PropertyResult {
-    await Engine(id: id, settings: settings, sourceLocation: sourceLocation).run(
-        isolation: isolation
-    ) {
-        testCase, context in
-        let value = try testCase.draw(generator)
-        context.description = String(reflecting: value)
-        try await property(value)
+    // The engine runs the examples before it returns.
+    await withoutActuallyEscaping(property) { property in
+        let explicit = examples.map { value in
+            ExplicitExample(label: String(reflecting: value)) { context in
+                context.description = String(reflecting: value)
+                try await property(value)
+            }
+        }
+        return await Engine(id: id, settings: settings, sourceLocation: sourceLocation).run(
+            isolation: isolation, explicit: explicit
+        ) {
+            testCase, context in
+            let value = try testCase.draw(generator)
+            context.description = String(reflecting: value)
+            try await property(value)
+        }
     }
 }

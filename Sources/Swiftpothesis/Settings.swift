@@ -3,9 +3,10 @@ import Testing
 
 /// Options that control how a property is tested.
 ///
-/// Settings come from, in increasing precedence: the defaults, the `SWIFTPOTHESIS_*` environment
-/// variables, `.propertySettings(_:)` traits on enclosing suites and tests, and the
-/// `settings` argument of ``forAll(_:id:settings:sourceLocation:isolation:_:)``.
+/// Settings come from, in increasing precedence: the defaults, the `SWIFTPOTHESIS_SEED`,
+/// `SWIFTPOTHESIS_DERANDOMIZE`, `SWIFTPOTHESIS_MAX_EXAMPLES`, and
+/// `SWIFTPOTHESIS_MAX_SHRINK_ATTEMPTS` environment variables, `.propertySettings(_:)` traits on enclosing suites and tests, and the
+/// `settings` argument of ``forAll(_:examples:id:settings:sourceLocation:isolation:_:)``.
 ///
 /// TODO: Named profiles, such as a `ci` profile with more examples and no deadline, selected by
 /// `SWIFTPOTHESIS_PROFILE`.
@@ -85,6 +86,9 @@ public struct Settings: Sendable {
         let env = ProcessInfo.processInfo.environment
         if let seed = env["SWIFTPOTHESIS_SEED"].flatMap(UInt64.init) { settings.seed = seed }
         if env["SWIFTPOTHESIS_DERANDOMIZE"] == "1" { settings.derandomize = true }
+        if let attempts = env["SWIFTPOTHESIS_MAX_SHRINK_ATTEMPTS"].flatMap(Int.init) {
+            settings.maxShrinkAttempts = attempts
+        }
         if let examples = env["SWIFTPOTHESIS_MAX_EXAMPLES"].flatMap(Int.init) {
             settings.maxExamples = examples
         }
@@ -94,6 +98,9 @@ public struct Settings: Sendable {
 
 /// A stage of testing a property.
 public enum Phase: Sendable, CaseIterable {
+    /// Runs the property's explicit `examples`, before anything is generated or replayed. A
+    /// failing explicit example is reported as is, without shrinking, and ends the run.
+    case explicit
     /// Replays examples saved in the ``Settings/database`` by earlier failing runs.
     case reuse
     /// Generates new random examples.

@@ -40,12 +40,13 @@ struct DeadlineTests {
         let calls = Mutex(0)
         let issues = await failures {
             await forAll(Int.arbitrary(in: 0...9)) { _ in
-                // Slow only for the first few calls after the exempt first one.
+                // Slow only for the first call after the exempt first one, so shrinking and the
+                // replay are fast.
                 let call = calls.withLock { count in
                     count += 1
                     return count
                 }
-                if (2...4).contains(call) { try await Task.sleep(for: .milliseconds(50)) }
+                if call == 2 { try await Task.sleep(for: .milliseconds(50)) }
             }
         }
         #expect(issues.contains { $0.contains("Flaky") })
