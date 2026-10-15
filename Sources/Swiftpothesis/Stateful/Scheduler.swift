@@ -1,49 +1,55 @@
-/// Controls the order in which concurrent operations complete, so that races become generated,
-/// shrinkable, and reproducible inputs.
+/// SPIKE: controls the interleaving of concurrent code, so races become generated, shrinkable,
+/// and reproducible inputs.
 ///
-/// Wrap the asynchronous boundaries of the code under test, such as network responses or
-/// callbacks, with ``schedule(_:_:)``. Each scheduled operation waits until the scheduler releases
-/// it, and the scheduler releases waiting operations in an order drawn from the test case. A
-/// failing interleaving shrinks like any other value, toward releasing operations in the order
-/// they were scheduled.
+/// Code inside ``run(_:)`` runs on one thread under a controlled executor. Every time more than
+/// one job is ready, such as two child tasks or an actor's queued calls, which runs next is a
+/// choice drawn from the test case. Failing interleavings shrink toward running jobs in the
+/// order they became ready.
 ///
 /// ```swift
 /// await forAll { test in
 ///     let scheduler = Scheduler(test)
-///     let pool = SimulatorPool(boot: { id in await scheduler.schedule("boot \(id)") { … } })
-///     async let results = pool.run(jobs)
-///     await scheduler.releaseAll()
-///     #expect(Set(await results) == Set(jobs))
+///     let count = await scheduler.run {
+///         let counter = Counter()
+///         async let a: Void = counter.increment()
+///         async let b: Void = counter.increment()
+///         _ = await (a, b)
+///         return await counter.value
+///     }
+///     #expect(count == 2)
 /// }
 /// ```
-///
-/// This API follows fast-check's `fc.scheduler()`.
-///
-/// TODO: Design and implement. JavaScript's scheduler knows when every task has reached a
-/// scheduling point because it can drain the microtask queue; Swift concurrency has no equivalent,
-/// so ``releaseAll()`` needs another way to detect quiescence, such as a custom task executor.
 public final class Scheduler: Sendable {
     let testCase: TestCase
+    let executor: ControlledExecutor
 
-    /// Creates a scheduler that chooses release orders from a running test case.
+    /// A clock whose time advances only when nothing else can run. Pass it to the code under
+    /// test as `some Clock<Duration>`.
+    public let clock: VirtualClock
+
+    /// Creates a scheduler that chooses interleavings from a running test case.
     public init(_ testCase: TestCase) {
         self.testCase = testCase
+        let clock = VirtualClock()
+        self.clock = clock
+        executor = ControlledExecutor(
+            choose: { count in Int((try? testCase.choose(atMost: UInt64(count - 1))) ?? 0) },
+            idle: { clock.advance() })
     }
 
-    /// Runs `operation` once the scheduler releases it, and returns its result.
-    public func schedule<T: Sendable>(
-        _ label: String, _ operation: @Sendable () async throws -> T
+    /// Runs `body` under the scheduler's control.
+    public func run<T: Sendable>(
+        _ body: @Sendable () async throws -> T
     ) async rethrows -> T {
-        fatalError("Scheduler is not implemented yet")
+        executor.start()
+        defer { executor.stop() }
+        return try await withTaskExecutorPreference(executor, isolation: nil) { try await body() }
     }
 
-    /// Releases scheduled operations, in a generated order, until none are waiting.
-    public func releaseAll() async {
-        fatalError("Scheduler is not implemented yet")
-    }
+    /// How many jobs arrived from outside the scheduler's control. Nonzero means the run may
+    /// not be reproducible.
+    var escapedJobs: Int { executor.foreignEnqueues }
 
-    /// The labels of released operations, in release order, for failure reports.
-    public var history: [String] {
-        fatalError("Scheduler is not implemented yet")
-    }
+    /// How many times the scheduler chose among several ready jobs.
+    var choicePoints: Int { executor.choicePoints }
 }

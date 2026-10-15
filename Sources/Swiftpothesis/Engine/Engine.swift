@@ -1,3 +1,4 @@
+import Foundation
 import Synchronization
 import Testing
 
@@ -266,6 +267,24 @@ struct Engine {
 
     func run(
         isolation: isolated (any Actor)?, explicit: [ExplicitExample] = [], _ test: TestFunction
+    ) async -> PropertyResult {
+        // SPIKE: SWIFTPOTHESIS_EXPERIMENT_SCHEDULER=1 runs every test case under a Scheduler, to
+        // see what breaks if forAll always provides one.
+        if ProcessInfo.processInfo.environment["SWIFTPOTHESIS_EXPERIMENT_SCHEDULER"] == "1" {
+            nonisolated(unsafe) let unscheduled = test
+            return await withoutActuallyEscaping(unscheduled) { unscheduled in
+                nonisolated(unsafe) let unscheduled = unscheduled
+                return await runUnscheduled(isolation: isolation, explicit: explicit) {
+                    testCase, context in
+                    try await Scheduler(testCase).run { try await unscheduled(testCase, context) }
+                }
+            }
+        }
+        return await runUnscheduled(isolation: isolation, explicit: explicit, test)
+    }
+
+    private func runUnscheduled(
+        isolation: isolated (any Actor)?, explicit: [ExplicitExample], _ test: TestFunction
     ) async -> PropertyResult {
         if settings.phases.contains(.explicit) {
             for example in explicit {
