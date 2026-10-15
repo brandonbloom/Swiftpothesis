@@ -48,6 +48,7 @@ func format(_ duration: Duration) -> String {
     let milliseconds =
         Double(duration.components.seconds) * 1000
         + Double(duration.components.attoseconds) / 1e15
+    if milliseconds >= 10_000 { return "\(Int((milliseconds / 1000).rounded())) s" }
     return "\(Int(milliseconds.rounded())) ms"
 }
 
@@ -93,6 +94,8 @@ struct Driver {
     /// Failing examples that shrinking left behind when it moved to a failure at another origin.
     private(set) var leftBehind: [(choices: [UInt64], failure: Failure)] = []
     private(set) var healthCheck: String?
+    /// Whether shrinking stopped because it ran out of attempts.
+    private(set) var shrinkingRanOutOfAttempts = false
     private var state: State
 
     private enum State {
@@ -105,10 +108,17 @@ struct Driver {
     // Gives up when this many test cases in a row are discarded.
     private var maxConsecutiveDiscards: Int { settings.maxExamples * 10 }
 
-    init(settings: Settings, databaseKey: String) {
+    /// - Parameters:
+    ///   - seedKey: The property's machine-independent identity, which seeds it when
+    ///     ``Settings/derandomize`` is on.
+    init(settings: Settings, databaseKey: String, seedKey: String) {
         self.settings = settings
         self.databaseKey = databaseKey
-        seed = settings.seed ?? UInt64.random(in: .min ... .max)
+        if settings.derandomize {
+            seed = stableHash64(seedKey) ^ (settings.seed ?? 0)
+        } else {
+            seed = settings.seed ?? UInt64.random(in: .min ... .max)
+        }
         let saved =
             settings.phases.contains(.reuse) ? settings.database?.fetch(databaseKey) ?? [] : []
         state = .reuse(saved: saved, index: 0)
@@ -141,6 +151,7 @@ struct Driver {
                 }
                 found = (shrinker.choices, shrinker.failure)
                 leftBehind = shrinker.leftBehind
+                shrinkingRanOutOfAttempts = shrinker.ranOutOfAttempts
                 state = .done
             case .done:
                 // Save examples that may fail differently, too, so a rare bug that shrinking moved
@@ -208,7 +219,8 @@ struct Driver {
         original = (choices, failure)
         state =
             settings.phases.contains(.shrink)
-            ? .shrink(Shrinker(choices: choices, failure: failure, budget: settings.maxShrinks))
+            ? .shrink(
+                Shrinker(choices: choices, failure: failure, budget: settings.maxShrinkAttempts))
             : .done
     }
 }
@@ -222,6 +234,8 @@ struct Engine {
     let sourceLocation: SourceLocation
     /// The key under which this property's failures are saved.
     private let databaseKey: String
+    /// The property's identity independent of the machine, for derandomized seeds.
+    private let seedKey: String
 
     /// Creates an engine for one property.
     ///
@@ -236,15 +250,16 @@ struct Engine {
         self.sourceLocation = sourceLocation
         // TODO: Distinguish the cases of a parameterized test; `Test.Case` has no public ID.
         let test = Test.current.map { "\($0.id)" } ?? sourceLocation.fileID
-        databaseKey =
-            "\(sourceLocation.filePath)|\(test)#\(id ?? String(PropertyIndex.next(in: test)))"
+        seedKey = "\(test)#\(id ?? String(PropertyIndex.next(in: test)))"
+        databaseKey = "\(sourceLocation.filePath)|\(seedKey)"
     }
 
     func run(isolation: isolated (any Actor)?, _ test: TestFunction) async -> PropertyResult {
-        var driver = Driver(settings: settings, databaseKey: databaseKey)
+        var driver = Driver(settings: settings, databaseKey: databaseKey, seedKey: seedKey)
         let clock = ContinuousClock()
         let start = clock.now
         var isFirst = true
+        var slowest: Duration = .zero
         while true {
             if let timeLimit = settings.timeLimit, driver.isGenerating,
                 clock.now - start > timeLimit
@@ -260,7 +275,16 @@ struct Engine {
             let testCase = TestCase(source)
             let run = await execute(
                 test, testCase, context, deadline: deadline, capturing: true, isolation: isolation)
+            slowest = max(slowest, run.elapsed)
             driver.record(outcome(run, deadline: deadline), source: testCase.close())
+        }
+        if let slowWarning = settings.slowWarning, slowest > slowWarning {
+            let limit =
+                settings.deadline.map { "Test cases fail after \(format($0))" }
+                ?? "There's no deadline"
+            Issue.record(
+                "The slowest test case took \(format(slowest)). \(limit); set `deadline` or `slowWarning` to change when this property fails or warns.",
+                severity: .warning, sourceLocation: sourceLocation)
         }
         guard let found = driver.found else { return finish(driver) }
         // Replay the shrunk failure with its issues recorded.
@@ -402,6 +426,11 @@ struct Engine {
             context.description.isEmpty
                 ? "Counterexample:\n\(counterexample)" : "Counterexample: \(counterexample)")
         lines += context.notes.map { "Note: \($0)" }
+        if driver.shrinkingRanOutOfAttempts {
+            lines.append(
+                "Shrinking stopped after \(settings.maxShrinkAttempts) attempts, so the counterexample may not be minimal."
+            )
+        }
         if let original = driver.original, original.failure.origin != found.failure.origin {
             lines.append(
                 "Shrinking moved from a failure at \(original.failure.origin) to one at \(found.failure.origin). An example of the original failure is saved and replays on the next run."
@@ -409,7 +438,9 @@ struct Engine {
         }
         lines.append("Choices: [\(falsification.choices)]")
         lines.append(
-            "Reproduce with SWIFTPOTHESIS_SEED=\(driver.seed), or rerun to replay it from the database."
+            settings.derandomize
+                ? "This run is derandomized, so rerunning reproduces it."
+                : "Reproduce with SWIFTPOTHESIS_SEED=\(driver.seed), or rerun to replay it from the database."
         )
         Issue.record(
             Comment(rawValue: lines.joined(separator: "\n")), sourceLocation: sourceLocation)

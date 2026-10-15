@@ -14,11 +14,26 @@ public struct Settings: Sendable {
     public var maxExamples = 100
 
     /// The seed for the run's random choices. Nil chooses a fresh seed each run, which is reported
-    /// with any failure.
+    /// with any failure. When ``derandomize`` is on, the seed instead salts each property's own
+    /// seed.
     public var seed: UInt64?
 
-    /// The most test cases to run while shrinking a failure.
-    public var maxShrinks = 1000
+    /// Whether each property's random choices are seeded from its identity, so every run tests the
+    /// same examples.
+    ///
+    /// A derandomized property's seed comes from its test's ID and its position or `id:` within
+    /// the test, combined with ``seed`` if set. It's the same on every machine, and editing one
+    /// test doesn't change another's. Turn it on where unrelated failures are costly, such as a
+    /// shared CI gate, and run randomized elsewhere to keep finding new bugs. Defaults to whether
+    /// `SWIFTPOTHESIS_DERANDOMIZE` is `1`.
+    public var derandomize = false
+
+    /// The most test cases to run while shrinking a failure: shrinking's fuel.
+    ///
+    /// Counting attempts rather than time keeps shrinking deterministic. When the fuel runs out,
+    /// the failure report says so, since the counterexample may not be minimal. Lower it for
+    /// slow properties.
+    public var maxShrinkAttempts = 1000
 
     /// The longest one test case may take before it fails. Nil disables the deadline.
     ///
@@ -32,7 +47,14 @@ public struct Settings: Sendable {
     /// shrinking, a test case must exceed the deadline by 25% to count as slow, so timing noise
     /// doesn't steer shrinking. If the shrunk example meets its deadline when replayed, the failure
     /// is reported as flaky.
-    public var deadline: Duration? = .seconds(1)
+    public var deadline: Duration? = .seconds(60)
+
+    /// How long a test case may take before the property warns that it's slow. Nil disables the
+    /// warning.
+    ///
+    /// The warning doesn't fail the test. It's recorded once per property, naming the slowest
+    /// test case, so slow properties are noticed well before they reach ``deadline``.
+    public var slowWarning: Duration? = .seconds(10)
 
     /// The longest the ``Phase/generate`` phase may take. Nil, the default, means no limit.
     ///
@@ -62,6 +84,7 @@ public struct Settings: Sendable {
         var settings = Settings()
         let env = ProcessInfo.processInfo.environment
         if let seed = env["SWIFTPOTHESIS_SEED"].flatMap(UInt64.init) { settings.seed = seed }
+        if env["SWIFTPOTHESIS_DERANDOMIZE"] == "1" { settings.derandomize = true }
         if let examples = env["SWIFTPOTHESIS_MAX_EXAMPLES"].flatMap(Int.init) {
             settings.maxExamples = examples
         }

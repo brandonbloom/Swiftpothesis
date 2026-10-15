@@ -3,7 +3,8 @@ extension String {
     public static func arbitrary(
         _ scalars: some Generator<Unicode.Scalar>, count: ClosedRange<Int> = 0...50
     ) -> some Generator<String> {
-        Generators.Strings(scalars: Generators.Arrays(element: scalars, count: count))
+        Generators.Strings(
+            scalars: Generators.Arrays(element: scalars, count: count, averageCount: nil))
     }
 
     /// Arbitrary strings with a number of Unicode scalars in `count`.

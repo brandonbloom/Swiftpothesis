@@ -49,6 +49,34 @@ public struct Source: Sendable {
         return choice
     }
 
+    /// Decides whether a sequence of `count` elements so far continues, given its allowed `bounds`
+    /// and the `average` length to aim for.
+    ///
+    /// Each continuation is one choice, and zero means stop, so shrinking shortens sequences by
+    /// zeroing or deleting choices. Random choices are uniform rather than biased, so lengths
+    /// follow a geometric distribution with the given average.
+    mutating func continues(
+        count: Int, bounds: ClosedRange<Int>, average: Double
+    ) throws(Rejection) -> Bool {
+        if count < bounds.lowerBound { return true }
+        if count >= bounds.upperBound { return false }
+        let extra = Swift.max(average - Double(bounds.lowerBound), 0)
+        let stop = UInt64(Swift.min(Swift.max((256 / (extra + 1)).rounded(), 1), 255))
+        return try choose(atMost: 255, uniformly: true) >= stop
+    }
+
+    /// Makes a choice between zero and `bound`, inclusive, without favoring small values and the
+    /// bounds when choosing randomly.
+    mutating func choose(atMost bound: UInt64, uniformly: Bool) throws(Rejection) -> UInt64 {
+        guard uniformly, choices.count >= prefix.count, random != nil else {
+            return try choose(atMost: bound)
+        }
+        guard choices.count < maxChoices else { throw Rejection(.overrun) }
+        let choice = bound == .max ? random!.next() : random!.next(upperBound: bound + 1)
+        choices.append(choice)
+        return choice
+    }
+
     /// Draws a value from another generator.
     public mutating func draw<G: Generator>(_ generator: G) throws(Rejection) -> G.Value {
         try generator.generate(from: &self)

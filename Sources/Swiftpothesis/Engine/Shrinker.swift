@@ -42,6 +42,11 @@ struct Shrinker {
         self.budget = budget
     }
 
+    /// Whether shrinking stopped because it ran out of attempts rather than progress.
+    var ranOutOfAttempts: Bool {
+        if case .finished = pass { false } else { budget == 0 }
+    }
+
     /// The next candidate to run, or nil when shrinking is done.
     mutating func nextCandidate() -> [UInt64]? {
         while budget > 0 {

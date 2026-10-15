@@ -23,7 +23,7 @@ struct DriverTests {
         var settings = Settings.defaults
         settings.database = database
         settings.phases = [.reuse, .shrink]
-        var driver = Driver(settings: settings, databaseKey: "key")
+        var driver = Driver(settings: settings, databaseKey: "key", seedKey: "key")
 
         // Bug A fails for 10 and up; bug B fails only for 0, which is simpler.
         run(&driver) { x in x == 0 ? BugB() : x >= 10 ? BugA() : nil }

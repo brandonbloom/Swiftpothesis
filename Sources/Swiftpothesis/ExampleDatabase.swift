@@ -114,9 +114,13 @@ public struct DirectoryDatabase: ExampleDatabase {
 
 // FNV-1a, because `Hasher` is randomly seeded per process.
 func stableHash(_ string: String) -> String {
+    String(stableHash64(string), radix: 16)
+}
+
+func stableHash64(_ string: String) -> UInt64 {
     var hash: UInt64 = 0xcbf2_9ce4_8422_2325
     for byte in string.utf8 {
         hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3
     }
-    return String(hash, radix: 16)
+    return hash
 }

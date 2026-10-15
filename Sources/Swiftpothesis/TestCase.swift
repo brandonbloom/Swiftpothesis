@@ -52,6 +52,15 @@ public final class TestCase: Sendable {
         }
     }
 
+    /// Decides whether a sequence continues. See ``Source/continues(count:bounds:average:)``.
+    func continues(count: Int, bounds: ClosedRange<Int>, average: Double) throws(Rejection) -> Bool
+    {
+        try state.withLock { (source) throws(Rejection) -> Bool in
+            guard source != nil else { preconditionFailure("TestCase used after it ended") }
+            return try source!.continues(count: count, bounds: bounds, average: average)
+        }
+    }
+
     /// An endless sequence of values from a generator, each drawn when the sequence reaches it.
     ///
     /// Use streams for inputs the code under test consumes on demand, such as a stream of

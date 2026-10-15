@@ -127,19 +127,21 @@ Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary
 
 ## 7. Settings and time
 
-**Decision.** One `Settings` value struct: `maxExamples` (100), `seed` (random), `maxShrinks` (1000), `database` (the directory database), `phases` (all), `suppressedHealthChecks` (none), `deadline` (1 second), and `timeLimit` (none). Precedence, lowest to highest: defaults, `SWIFTPOTHESIS_*` environment variables, `.propertySettings { … }` traits (suite, then test), and `forAll`'s `settings:` argument. Explicit code wins over the environment.
+**Decision.** One `Settings` value struct: `maxExamples` (100), `seed` (random), `derandomize` (off), `maxShrinkAttempts` (1000), `database` (the cache-directory database), `phases` (all), `suppressedHealthChecks` (none), `deadline` (60 s), `slowWarning` (10 s), and `timeLimit` (none). Precedence, lowest to highest: defaults, `SWIFTPOTHESIS_*` environment variables, `.propertySettings { … }` traits (suite, then test), and `forAll`'s `settings:` argument. Explicit code wins over the environment.
 
 **Profiles** (named presets such as `ci`, chosen by `SWIFTPOTHESIS_PROFILE`) are deferred until a second preset is worth naming.
 
 **Deadlines were built early,** because timing is hard to retrofit into an engine.
 - `deadline` limits one test case. A late test case fails, so shrinking finds the smallest slow input. Each test case races a timer in a task group and is cancelled at the deadline, while still running on the caller's actor. Cancellation is cooperative: a property that never suspends finishes first and is then reported as late. Swift Testing's `.timeLimit` trait remains the guard against real hangs.
+- The default is a generous 60 s, because properties doing real I/O (FBF's sync simulation takes 2–5 s per test case) would otherwise fail by default. `slowWarning` (10 s) records one warning per property, naming the slowest test case, so slowness is noticed well before it fails.
 - The first test case is exempt, since one-time setup makes it unrepresentative.
 - While shrinking, a test case must exceed the deadline by 25% to count, so timing noise doesn't steer shrinking.
 - If the shrunk example meets its deadline on replay, the failure is reported as flaky.
-- The 1-second default is looser than Hypothesis's 200 ms, to allow for debug builds and simulators.
 - `timeLimit` caps the generate phase; when it runs out, the property passes with fewer examples.
 
-**Alternatives.** Deadlines as warnings rather than failures (easy to ignore); deadlines off by default (slow inputs are often real bugs); limiting shrinking by time rather than attempts (makes results depend on machine speed).
+**Shrinking is limited by fuel, not time.** `maxShrinkAttempts` counts candidates run, so shrinking stays deterministic. When the fuel runs out, the report says the counterexample may not be minimal. Slow properties lower it. A shrinking time limit was rejected because it makes results depend on machine speed.
+
+**Derandomize vs an explicit seed.** An explicit seed is one number shared by every property it applies to, for reproducing a failure or pinning a test. `derandomize` (or `SWIFTPOTHESIS_DERANDOMIZE=1`) seeds each property from its machine-independent identity (test ID plus property index or `id:`, not the file path), so a whole suite is deterministic with no configuration, and editing one test doesn't change another's seed. With both, the explicit seed salts every property's seed, so CI can rotate it. Derandomized runs test a fixed sample, so random runs should still happen elsewhere. The motivating case is a shared CI gate, where a random run finding an old bug fails unrelated changes.
 
 ## 8. The failure database
 
@@ -157,6 +159,23 @@ Custom types follow the same pattern: conform to `Arbitrary`, and add `arbitrary
 **Formats.** Every file Swiftpothesis writes is JSON in an envelope: `{"format": …, "version": …, "data": …}`. Versions are calendar dates (`2026.10.15`), bumped whenever any format changes. Files from another format or version are ignored with a warning, never migrated.
 
 **Later.** Pruning entries by age, and a read-only database of failures downloaded from CI.
+
+## 9. State machines
+
+**Decision.** Two protocols, neither refining the other, because the convenient one removes a capability rather than adding one.
+
+- `SequentialMachine`: one `State` value holding the system and any model or replicas; `makeState() async throws`; `commands(for: State)`; `run(_:state: inout State)` performs and checks a command with `#expect`; `skip(_:)` marks a command that doesn't apply; `checkInvariants`, `finish(state:)` (a final settle-and-check step that shrinks and shows as "(finish)"), and `tearDown`. `check(_:steps:averageSteps:…)` runs it.
+- `LinearizableMachine`: separate `Model` and `Sendable` `System`; `apply(_:to:) -> Response`; `next(_:after:response:)`; a pure `postcondition` returning `Bool`, since a linearizability search evaluates it for many candidate orders. `checkLinearizability` will run commands concurrently and search for an explaining order; it's a stub.
+
+**Conversion, not subtyping.** A linearizable machine can always run sequentially (apply, then check the postcondition with `#expect`, then advance the model), so `machine.sequential` adapts it to a `SequentialMachine`. The reverse is impossible: a combined `run` can't be evaluated without running the system. So there's one sequential engine, and a parallel engine only linearizable machines can use.
+
+**Why one `State`.** FBF's review: their commands come from the system's state (pending files, visible items), not from a model, and their properties compare replicas with each other and an oracle, with no model at all. A separate model and system made them mirror the file system into the model. Model-based users put both in one struct.
+
+**Lengths.** Sequences continue with a uniform choice per step, giving geometric lengths with a set average: `averageSteps` (default 20) for machines, `averageCount` for collections (default a few past the minimum, as in Hypothesis). FBF's planted bug was missed at an average of ~10 steps and caught at ~30.
+
+**Naming.** `SequentialMachine` and `LinearizableMachine` name what each can be checked for. "Parallel" was rejected because the linearizable machine also runs sequentially; "Model" because it's the linearizable machine's associated type, and sequential machines often have none.
+
+**Alternatives.** Command objects (fast-check), rule methods with bundles (Hypothesis; would need a macro), a single protocol with optional linearizability (makes differential tests invent a `Response`).
 
 ## Versioning
 

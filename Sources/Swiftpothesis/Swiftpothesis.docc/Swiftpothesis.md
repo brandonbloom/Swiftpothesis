@@ -50,8 +50,11 @@ Swiftpothesis shrinks the way [Hypothesis](https://hypothesis.readthedocs.io) do
 ### Stateful Testing
 
 - <doc:StatefulTesting>
-- ``StateMachine``
-- ``check(_:steps:id:settings:sourceLocation:isolation:)``
+- ``SequentialMachine``
+- ``check(_:steps:averageSteps:id:settings:sourceLocation:isolation:)``
+- ``LinearizableMachine``
+- ``SequentialAdapter``
+- ``checkLinearizability(_:steps:averageSteps:branches:id:settings:sourceLocation:isolation:)``
 - ``Scheduler``
 
 ### Reproducing Failures
