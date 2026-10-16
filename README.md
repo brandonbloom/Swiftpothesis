@@ -43,3 +43,7 @@ mise run test           # swift test
 mise run ci             # everything CI checks
 mise run docs-preview   # build the DocC site and serve it locally
 ```
+
+## License
+
+Swiftpothesis is available under the [MIT License](LICENSE).
