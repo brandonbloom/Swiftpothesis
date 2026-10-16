@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Serves the DocC site built by scripts/docs at http://localhost:8000/Swiftpothesis/, mirroring
+# its GitHub Pages path.
+set -euo pipefail
+: "${SWIFTPOTHESIS_HOME:?}"
+root="$(mktemp -d)"
+ln -s "$SWIFTPOTHESIS_HOME/.build/docs" "$root/Swiftpothesis"
+echo "Serving http://localhost:8000/Swiftpothesis/"
+python3 -m http.server --directory "$root" 8000
