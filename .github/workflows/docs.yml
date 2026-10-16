@@ -1,7 +1,8 @@
-# Publishes the DocC site to GitHub Pages. Pages sites are public even for private repositories,
-# so this runs only on demand until the project is open sourced; then add `push: branches: [main]`.
+# Publishes the DocC site to GitHub Pages.
 name: docs
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read

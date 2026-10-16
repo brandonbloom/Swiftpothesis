@@ -28,7 +28,7 @@ Swift 6.4 or later, on macOS, iOS, tvOS, watchOS, or visionOS 26 or later.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/brandonbloom/Swiftpothesis.git", exact: "0.1.0"),
+    .package(url: "https://github.com/brandonbloom/Swiftpothesis.git", exact: "0.1.1"),
 ],
 ```
 
