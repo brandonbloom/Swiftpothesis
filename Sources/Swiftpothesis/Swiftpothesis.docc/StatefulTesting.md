@@ -82,10 +82,71 @@ await check(StackMachine(), examples: [
 
 A linearizable machine separates performing a command from predicting and judging it, so the engine can run commands concurrently and then search for a sequential order that explains every response. Postconditions are pure functions rather than `#expect`, because that search evaluates them for many candidate orders.
 
-Checking concurrent runs, ``checkLinearizability(_:steps:averageSteps:branches:branchSteps:id:settings:sourceLocation:isolation:)``, isn't implemented yet. A linearizable machine already runs sequentially:
+This machine models a counter with an integer. The actor's `increment` suspends between reading and writing its value, so two concurrent increments can both return 1:
 
 ```swift
-await check(QueueMachine().sequential)
+actor Counter {
+    var value = 0
+    func increment() async -> Int {
+        let read = value
+        await Task.yield()  // Stands in for async work; another increment can run here.
+        value = read + 1
+        return value
+    }
+    func read() -> Int { value }
+}
+
+struct CounterMachine: LinearizableMachine {
+    enum Command: CustomStringConvertible, Sendable {
+        case increment, read
+        var description: String { self == .increment ? "increment()" : "read()" }
+    }
+
+    func makeModel() -> Int { 0 }
+    func makeSystem() -> Counter { Counter() }
+
+    func commands(for model: Int) -> some Generator<Command> {
+        element(of: [Command.increment, .read])
+    }
+
+    func apply(_ command: Command, to counter: Counter) async -> Int {
+        switch command {
+        case .increment: await counter.increment()
+        case .read: await counter.read()
+        }
+    }
+
+    func next(_ model: Int, after command: Command, response: Int) -> Int {
+        command == .increment ? model + 1 : model
+    }
+
+    func postcondition(_ model: Int, command: Command, response: Int) -> Bool {
+        command == .increment ? response == model + 1 : response == model
+    }
+}
+
+@Test func counterIsLinearizable() async {
+    await checkLinearizability(CounterMachine())
+}
+```
+
+``checkLinearizability(_:steps:averageSteps:branches:branchSteps:id:settings:sourceLocation:isolation:)`` runs a short prefix of commands, then increments and reads in two concurrent branches. It finds responses that no order of them explains, and shrinks to the smallest race:
+
+```
+Not linearizable: no sequential order of the concurrent commands explains their responses.
+Property falsified after 1 examples.
+  Counterexample:
+  Branch 1: increment() → 1
+  Branch 2: increment() → 1
+  Interleaving: branch 1 → branch 2 → …
+```
+
+Under ``Scheduling/deterministic`` scheduling, the interleaving is drawn from the test case like the commands, so it shrinks and replays too. Keep branches short: checking considers every interleaving of them.
+
+A linearizable machine also runs one command at a time, checking each postcondition as it goes:
+
+```swift
+await check(CounterMachine().sequential)
 ```
 
 ## Topics
