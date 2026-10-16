@@ -8,7 +8,7 @@ Add Swiftpothesis to your package's dependencies, and to a test target:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/brandonbloom/Swiftpothesis.git", branch: "main"),
+    .package(url: "https://github.com/brandonbloom/Swiftpothesis.git", exact: "0.1.0"),
 ],
 targets: [
     .testTarget(

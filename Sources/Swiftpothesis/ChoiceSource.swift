@@ -15,3 +15,41 @@ public protocol ChoiceSource: Sendable {
 }
 
 extension TestCase: ChoiceSource {}
+
+extension ChoiceSource {
+    /// Draws one of `choices` in proportion to its weight, among those that are available,
+    /// checking availability only for choices it draws.
+    ///
+    /// When a drawn choice isn't available, it's set aside and another is drawn from the rest, so
+    /// the result is distributed as if unavailable choices had been left out of the list, without
+    /// checking each one up front. That suits ``SequentialMachine/command(for:drawingFrom:)``,
+    /// where checking can mean reading files:
+    ///
+    /// ```swift
+    /// guard let kind = try await source.draw(
+    ///     weighted: [(10, Kind.transfer), (2, .sync), (3, .absorb)],
+    ///     where: { kind in try await world.hasOptions(kind) })
+    /// else { return .syncAll }
+    /// ```
+    ///
+    /// It's built on ``choose(atMost:)`` alone, so it shrinks toward the first available choice.
+    ///
+    /// - Returns: The drawn choice, or nil if none is available.
+    public func draw<Choice: Sendable>(
+        weighted choices: [(weight: Int, choice: Choice)],
+        where isAvailable: (Choice) async throws -> Bool
+    ) async throws -> Choice? {
+        var remaining = choices.filter { $0.weight > 0 }
+        while !remaining.isEmpty {
+            let total = remaining.reduce(0) { $0 + $1.weight }
+            var pick = Int(try choose(atMost: UInt64(total - 1)))
+            let index = remaining.firstIndex { choice in
+                defer { pick -= choice.weight }
+                return pick < choice.weight
+            }!
+            if try await isAvailable(remaining[index].choice) { return remaining[index].choice }
+            remaining.remove(at: index)
+        }
+        return nil
+    }
+}

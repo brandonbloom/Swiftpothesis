@@ -27,11 +27,13 @@ Swift 6.2 or later, on macOS, iOS, tvOS, watchOS, or visionOS 26 or later.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/brandonbloom/Swiftpothesis.git", branch: "main"),
+    .package(url: "https://github.com/brandonbloom/Swiftpothesis.git", exact: "0.1.0"),
 ],
 ```
 
 Then add `.product(name: "Swiftpothesis", package: "Swiftpothesis")` to your test target's dependencies.
+
+Pin an exact version: under StableVer, every 0.x release may change alpha features.
 
 ## Development
 
