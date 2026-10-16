@@ -23,7 +23,7 @@ import Testing
 
 ## Installation
 
-Swift 6.2 or later, on macOS, iOS, tvOS, watchOS, or visionOS 26 or later.
+Swift 6.4 or later, on macOS, iOS, tvOS, watchOS, or visionOS 26 or later.
 
 ```swift
 dependencies: [

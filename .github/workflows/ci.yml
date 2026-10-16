@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 jobs:
   ci:
-    runs-on: macos-latest
+    runs-on: xcode-27  # Xcode 27 (Swift 6.4) is in public preview; macos-26 images stop at 26.6.
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
