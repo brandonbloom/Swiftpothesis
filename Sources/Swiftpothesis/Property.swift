@@ -44,9 +44,11 @@ public func forAll<each G: Generator>(
     isolation: isolated (any Actor)? = #isolation,
     _ property: (repeat (each G).Value) async throws -> Void
 ) async -> PropertyResult {
-    await check(
-        zip(repeat each generators), examples: examples, id: id, settings: settings,
-        sourceLocation: sourceLocation, isolation: isolation
+    var arguments = 0
+    for _ in repeat each generators { arguments += 1 }
+    return await check(
+        zip(repeat each generators), arguments: arguments, examples: examples, id: id,
+        settings: settings, sourceLocation: sourceLocation, isolation: isolation
     ) { (values: (repeat (each G).Value)) in
         try await property(repeat each values)
     }
@@ -72,9 +74,11 @@ public func forAll<each T: Arbitrary>(
     isolation: isolated (any Actor)? = #isolation,
     _ property: (repeat each T) async throws -> Void
 ) async -> PropertyResult {
-    await check(
-        zip(repeat (each T).arbitrary), examples: examples, id: id, settings: settings,
-        sourceLocation: sourceLocation, isolation: isolation
+    var arguments = 0
+    for _ in repeat (each T).self { arguments += 1 }
+    return await check(
+        zip(repeat (each T).arbitrary), arguments: arguments, examples: examples, id: id,
+        settings: settings, sourceLocation: sourceLocation, isolation: isolation
     ) { (values: (repeat each T)) in
         try await property(repeat each values)
     }
@@ -154,6 +158,7 @@ public func target(_ score: Double, label: String = "") {
 // which crashes at run time ("freed pointer was not the last allocation") as of Swift 6.4.
 private func check<G: Generator>(
     _ generator: G,
+    arguments: Int,
     examples: [G.Value],
     id: String?,
     settings: Settings,
@@ -170,7 +175,7 @@ private func check<G: Generator>(
             }
         }
         var engine = Engine(id: id, settings: settings, sourceLocation: sourceLocation)
-        engine.explainsArguments = true
+        engine.explainedArguments = arguments
         return await engine.run(isolation: isolation, explicit: explicit) {
             testCase, context in
             let value = try testCase.draw(generator)

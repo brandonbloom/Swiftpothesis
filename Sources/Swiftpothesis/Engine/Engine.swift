@@ -403,8 +403,9 @@ struct Engine {
     let sourceLocation: SourceLocation
     /// The key under which this property's failures are saved.
     private let databaseKey: String
-    /// Whether the property draws one value per argument, so the explain phase can vary each.
-    var explainsArguments = false
+    /// How many arguments the property draws, one span each, for the explain phase to vary. It
+    /// explains only properties with two or more.
+    var explainedArguments = 0
     /// The property's identity independent of the machine, for derandomized seeds.
     private let seedKey: String
 
@@ -623,7 +624,7 @@ struct Engine {
         _ test: TestFunction,
         isolation: isolated (any Actor)?
     ) async -> [Int] {
-        guard explainsArguments, settings.phases.contains(.explain) else { return [] }
+        guard explainedArguments >= 2, settings.phases.contains(.explain) else { return [] }
         // The arguments are the spans directly inside the span of the whole draw.
         guard let whole = spans.filter({ $0.lowerBound == 0 }).max(by: { $0.count < $1.count })
         else { return [] }
@@ -631,7 +632,9 @@ struct Engine {
         let arguments = inside.filter { span in
             !inside.contains { $0 != span && $0.contains(span) }
         }.sorted { $0.lowerBound < $1.lowerBound }
-        guard arguments.count >= 2 else { return [] }
+        // Spans that coincide can hide an argument's span, so explain only when the spans found
+        // match the arguments exactly.
+        guard arguments.count == explainedArguments else { return [] }
         var random = Xoshiro256(seed: seed ^ 0x6578_706c_6169_6e)
         var free: [Int] = []
         for (index, argument) in arguments.enumerated() where !argument.isEmpty {
