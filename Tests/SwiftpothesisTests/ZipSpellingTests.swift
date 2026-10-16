@@ -2,7 +2,7 @@ import Foundation
 import Swiftpothesis
 import Testing
 
-/// `zip` spellings users write, with a plain import and Foundation in scope, as SwiftBook has.
+/// `zip` spellings users write, with a plain import and Foundation in scope, as most test files have.
 struct ZipSpellingTests {
     struct Bitmap: Sendable {
         var width: Int
@@ -37,6 +37,58 @@ struct ZipSpellingTests {
         await forAll(areas, lists) { area, list in
             #expect(area >= 1)
             #expect(list.count <= 3)
+        }
+    }
+
+    // From the "Generating Grids and Images" article.
+    struct Edit: Sendable {
+        var pixel: Int
+        var color: [UInt8]
+    }
+
+    static var bitmaps: some Generator<Bitmap> {
+        zip(Int.arbitrary(in: 1...8), Int.arbitrary(in: 1...8)).flatMap { width, height in
+            let count = width * height * 4
+            return [UInt8].arbitrary(UInt8.arbitrary, count: count...count).map {
+                Bitmap(width: width, height: height, rgba: $0)
+            }
+        }
+    }
+
+    static var similarPairs: some Generator<(Bitmap, Bitmap)> {
+        bitmaps.flatMap { original in
+            let pixels = original.width * original.height
+            let edit = zip(
+                Int.arbitrary(in: 0...(pixels - 1)),
+                [UInt8].arbitrary(UInt8.arbitrary, count: 4...4)
+            ).map(Edit.init)
+            return [Edit].arbitrary(edit, count: 0...6).map { edits in
+                var changed = original
+                for edit in edits {
+                    changed.rgba.replaceSubrange(
+                        edit.pixel * 4..<edit.pixel * 4 + 4, with: edit.color)
+                }
+                return (original, changed)
+            }
+        }
+    }
+
+    @Test func gridRecipe() async {
+        await forAll(Self.similarPairs) { pair in
+            let (original, changed) = pair
+            let differing = (0..<(original.width * original.height)).filter {
+                original.rgba[$0 * 4..<$0 * 4 + 4] != changed.rgba[$0 * 4..<$0 * 4 + 4]
+            }
+            #expect(differing.count <= 6)
+        }
+    }
+
+    // From the "Testing That Distinct Inputs Stay Distinct" article.
+    @Test func distinctnessRecipe() async {
+        let names = String.arbitrary(alphabet: "aA.:?_ ", count: 1...4).withDuplicates()
+        await forAll(names, names) { a, b in
+            try assume(a != b)
+            #expect(a != b)
         }
     }
 

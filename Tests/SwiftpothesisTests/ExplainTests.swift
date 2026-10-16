@@ -23,7 +23,7 @@ struct ExplainTests {
     }
 
     @Test func doesntExplainInsideASingleArgument() async {
-        // One argument whose elements are zips, as SwiftBook's story lists are.
+        // One argument whose elements are zips, such as a list of records.
         let stories = [String].arbitrary(
             zip(String.arbitrary(count: 0...2), Int.arbitrary(in: 0...9)).map { "\($0)\($1)" },
             count: 0...5)

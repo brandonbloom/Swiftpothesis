@@ -19,6 +19,9 @@ public struct Source: Sendable {
     // `spliceTail` from there on, so one span's choices are fresh and the rest are recorded.
     var spliceStart: Int?
     var spliceTail: [UInt64] = []
+    // For `withDuplicates`: the choices behind each value a duplicating generator has produced
+    // in this test case, keyed by the generator, so later draws can copy or vary them.
+    var produced: [ObjectIdentifier: [[UInt64]]] = [:]
     // Makes fresh choices once the prefix runs out. Nil while shrinking, when the simplest choice
     // (zero) is made instead, so that deleting choices tends to delete structure.
     var random: Xoshiro256?
