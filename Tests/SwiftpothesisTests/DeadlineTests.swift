@@ -5,10 +5,12 @@ import Testing
 
 @Suite(.propertyOverrides { $0.database = nil })
 struct DeadlineTests {
-    @Test(.propertyOverrides { $0.deadline = .milliseconds(20) })
+    // Deadlines here are wide enough for shared CI runners, where scheduling alone can take tens
+    // of milliseconds.
+    @Test(.propertyOverrides { $0.deadline = .milliseconds(100) })
     func slowExamplesFailAndShrink() async {
         let issues = await failures {
-            await forAll(Int.arbitrary(in: 0...100)) { x in
+            await forAll(Int.arbitrary(in: 0...500)) { x in
                 // Cancellation ends the sleep early, so slow cases cost about the deadline.
                 try await Task.sleep(for: .milliseconds(x))
             }
@@ -21,7 +23,7 @@ struct DeadlineTests {
         // The smallest slow input sleeps somewhat less than the deadline, since scheduling adds a
         // few milliseconds to every test case.
         let x = Int(summary.split(separator: "Counterexample: ").last?.prefix { $0.isNumber } ?? "")
-        #expect(x.map { (5...60).contains($0) } == true)
+        #expect(x.map { (25...150).contains($0) } == true)
     }
 
     @Test(.propertyOverrides { $0.deadline = .milliseconds(10) })
@@ -38,7 +40,7 @@ struct DeadlineTests {
         #expect(issues.contains { $0.contains("Deadline exceeded") || $0.contains("Flaky") })
     }
 
-    @Test(.propertyOverrides { $0.deadline = .milliseconds(10) })
+    @Test(.propertyOverrides { $0.deadline = .milliseconds(100) })
     func fastReplayIsReportedAsFlaky() async {
         let calls = Mutex(0)
         let issues = await failures {
@@ -49,7 +51,7 @@ struct DeadlineTests {
                     count += 1
                     return count
                 }
-                if call == 2 { try await Task.sleep(for: .milliseconds(50)) }
+                if call == 2 { try await Task.sleep(for: .milliseconds(500)) }
             }
         }
         #expect(issues.contains { $0.contains("Flaky") })
