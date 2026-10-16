@@ -182,6 +182,24 @@ extension Generators.Zip {
     }
 }
 
+extension Generators.Zip {
+    /// Uses each tuple of generated values, passed as separate arguments, to choose a generator
+    /// for the final value.
+    ///
+    /// ```swift
+    /// zip(Int.arbitrary(in: 1...4), Int.arbitrary(in: 1...4)).flatMap { width, height in
+    ///     [UInt8].arbitrary(UInt8.arbitrary, count: width * height...width * height)
+    /// }
+    /// ```
+    public func flatMap<Next: Generator>(
+        _ transform: @escaping @Sendable (repeat (each G).Value) -> Next
+    ) -> Generators.FlatMap<Self, Next> {
+        Generators.FlatMap(base: self) { (values: (repeat (each G).Value)) in
+            transform(repeat each values)
+        }
+    }
+}
+
 // MARK: - Recursion
 
 /// A generator for recursive structures, such as trees or expressions.

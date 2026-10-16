@@ -11,6 +11,68 @@ extension String {
     public static func arbitrary(count: ClosedRange<Int>) -> some Generator<String> {
         arbitrary(Unicode.Scalar.arbitrary, count: count)
     }
+
+    /// Strings of scalars from `alphabet`, shrinking toward shorter strings of its first scalar.
+    ///
+    /// Small alphabets make collisions and edge cases likely, such as testing that file names
+    /// stay distinct:
+    ///
+    /// ```swift
+    /// String.arbitrary(alphabet: "aA.:? ", count: 1...3)
+    /// ```
+    public static func arbitrary(alphabet: String, count: ClosedRange<Int> = 0...50)
+        -> some Generator<String>
+    {
+        arbitrary(Unicode.Scalar.arbitrary(from: alphabet), count: count)
+    }
+}
+
+extension Unicode.Scalar {
+    /// Scalars from `alphabet`, shrinking toward its first.
+    public static func arbitrary(from alphabet: String) -> some Generator<Unicode.Scalar> {
+        precondition(
+            !alphabet.isEmpty, "Unicode.Scalar.arbitrary(from:) requires a nonempty alphabet")
+        return element(of: Array(alphabet.unicodeScalars))
+    }
+
+    /// Scalars in a range, shrinking toward its lower bound. Surrogate code points, which aren't
+    /// scalars, are skipped.
+    public static func arbitrary(in range: ClosedRange<Unicode.Scalar>)
+        -> some Generator<Unicode.Scalar>
+    {
+        let lower = range.lowerBound.value
+        let upper = range.upperBound.value
+        // The surrogates within the range, which can't be scalars.
+        let gapStart = Swift.max(lower, 0xD800)
+        let gap = Swift.max(0, Int(Swift.min(upper, 0xDFFF)) - Int(gapStart) + 1)
+        let count = Int(upper - lower) + 1 - gap
+        return Int.arbitrary(in: 0...(count - 1)).map { offset in
+            let value = lower + UInt32(offset)
+            // Offsets at or past the surrogates skip over them.
+            return Unicode.Scalar(gap > 0 && value >= gapStart ? value + UInt32(gap) : value)!
+        }
+    }
+
+    /// Scalars in any of the Unicode general `categories`, within `range`, shrinking toward the
+    /// lowest.
+    ///
+    /// ```swift
+    /// Unicode.Scalar.arbitrary(categories: [.uppercaseLetter, .otherPunctuation])
+    /// ```
+    ///
+    /// The matching scalars are found once, when the generator is created.
+    public static func arbitrary(
+        categories: Set<Unicode.GeneralCategory>,
+        in range: ClosedRange<Unicode.Scalar> = "\u{0}"..."\u{10FFFF}"
+    ) -> some Generator<Unicode.Scalar> {
+        let matching = (range.lowerBound.value...range.upperBound.value).compactMap { value in
+            Unicode.Scalar(value).flatMap {
+                categories.contains($0.properties.generalCategory) ? $0 : nil
+            }
+        }
+        precondition(!matching.isEmpty, "No scalars in \(range) are in the given categories")
+        return element(of: matching)
+    }
 }
 
 extension Generators {
@@ -24,10 +86,8 @@ extension Generators {
         }
     }
 
-    /// Unicode scalars, shrinking toward `"0"`.
-    ///
-    /// TODO: Accept Unicode general categories and explicit alphabets, as Hypothesis's
-    /// `characters()` does.
+    /// Unicode scalars, shrinking toward `"0"`. For other scalars, see
+    /// `Unicode.Scalar.arbitrary(from:)`, `arbitrary(in:)`, and `arbitrary(categories:in:)`.
     struct UnicodeScalars: Generator {
         // Scalars that commonly break text handling, tried often during generation.
         static let special: [Unicode.Scalar] = [
