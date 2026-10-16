@@ -66,6 +66,19 @@ enum PropertyIndex {
     }
 }
 
+/// What a test case racing its deadline reports back from its child tasks.
+///
+/// A class shared by reference, rather than captured `Mutex`es, because Swift 6.2's region
+/// checking treats captured locals of an isolated caller as shared with that isolation.
+private final class DeadlineRace: @unchecked Sendable {
+    struct State {
+        var result: (issues: [Issue], error: (any Error)?) = ([], nil)
+        var timedOut = false
+    }
+
+    let state = Mutex(State())
+}
+
 /// A hand-written example to run before any generated ones.
 struct ExplicitExample {
     /// How the example is shown in reports, such as its values or its name.
@@ -570,23 +583,22 @@ struct Engine {
             // child task: this function waits for the group, so `body` never runs concurrently with
             // its caller.
             nonisolated(unsafe) let unsafeBody = body
-            let result = Mutex<(issues: [Issue], error: (any Error)?)>(([], nil))
-            let timedOut = Mutex(false)
+            let race = DeadlineRace()
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {
                     let outcome = await self.run(
                         unsafeBody, capturing: capturing, isolation: isolation)
-                    result.withLock { $0 = outcome }
+                    race.state.withLock { $0.result = outcome }
                 }
                 group.addTask {
                     guard (try? await Task.sleep(for: deadline)) != nil else { return }
-                    timedOut.withLock { $0 = true }
+                    race.state.withLock { $0.timedOut = true }
                 }
                 await group.next()
                 group.cancelAll()
             }
-            let (issues, error) = result.withLock { $0 }
-            return (issues, error, clock.now - start, timedOut.withLock { $0 })
+            let (result, timedOut) = race.state.withLock { ($0.result, $0.timedOut) }
+            return (result.issues, result.error, clock.now - start, timedOut)
 
         }
     }
