@@ -19,6 +19,13 @@ actor Counter {
     }
 }
 
+/// A log shared by concurrent tasks.
+final class Log: Sendable {
+    private let state = Mutex<[String]>([])
+    var entries: [String] { state.withLock { $0 } }
+    func append(_ entry: String) { state.withLock { $0.append(entry) } }
+}
+
 /// Records which thread an actor's methods run on.
 actor Probe {
     func threadName() -> String? { Thread.current.name }
@@ -99,17 +106,18 @@ struct SchedulingTests {
         let start = ContinuousClock.now
         await forAll { test in
             let clock = test.clock
-            let log = Mutex<[String]>([])
-            async let slow: Void = {
-                try? await clock.sleep(for: .seconds(3600))
-                log.withLock { $0.append("slow") }
-            }()
-            async let fast: Void = {
-                try? await clock.sleep(for: .seconds(60))
-                log.withLock { $0.append("fast") }
-            }()
-            _ = await (slow, fast)
-            #expect(log.withLock { $0 } == ["fast", "slow"])
+            let log = Log()
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    try? await clock.sleep(for: .seconds(3600))
+                    log.append("slow")
+                }
+                group.addTask {
+                    try? await clock.sleep(for: .seconds(60))
+                    log.append("fast")
+                }
+            }
+            #expect(log.entries == ["fast", "slow"])
             #expect(clock.now.offset == .seconds(3600))
         }
         #expect(ContinuousClock.now - start < .seconds(5))
