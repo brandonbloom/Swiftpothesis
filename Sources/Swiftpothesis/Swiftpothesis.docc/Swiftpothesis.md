@@ -4,6 +4,8 @@ Property-based testing for Swift Testing, with Hypothesis-style shrinking.
 
 ## Overview
 
+> Important: Swiftpothesis is a preview. Its APIs, behavior, and file formats are unstable and will change, sometimes without notice. Until 1.0, every feature is alpha under [StableVer](https://github.com/brandonbloom/stablever); pin an exact version.
+
 A property-based test states something that should hold for every input, and Swiftpothesis searches for an input where it doesn't:
 
 ```swift
@@ -37,6 +39,11 @@ Swiftpothesis shrinks the way [Hypothesis](https://hypothesis.readthedocs.io) do
 - ``forAll(id:settings:sourceLocation:isolation:_:)``
 - ``TestCase``
 
+### Recipes
+
+- <doc:TestingDistinctness>
+- <doc:GeneratingGridsAndImages>
+
 ### Generators
 
 - ``Generator``
@@ -47,6 +54,7 @@ Swiftpothesis shrinks the way [Hypothesis](https://hypothesis.readthedocs.io) do
 - ``constant(_:)``
 - ``element(of:)``
 - ``recursive(base:maxDepth:_:)``
+- ``Generator/withDuplicates(probability:)``
 - ``AnyGenerator``
 - ``Generators``
 - ``Source``

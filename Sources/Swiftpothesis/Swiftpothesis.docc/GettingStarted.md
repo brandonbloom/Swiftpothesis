@@ -44,6 +44,14 @@ Types that conform to ``Arbitrary`` can be requested by type alone:
 }
 ```
 
+To share a generator among tests, make it a computed property. Generators have opaque types, which a stored property can't infer from another declaration:
+
+```swift
+extension StoryTests {
+    static var names: some Generator<String> { String.arbitrary(alphabet: "aA.:", count: 1...3) }
+}
+```
+
 ## Read a failure
 
 Suppose a property is wrong:

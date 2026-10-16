@@ -3,7 +3,7 @@ import Testing
 @testable import Swiftpothesis
 
 /// A bug that needs three commands in order, `a` then `b` then `c`, amid unrelated ones: the
-/// shape of FBF's config-sync bugs.
+/// shape of bugs in sync and replication code.
 struct SubsequenceMachine: SequentialMachine {
     enum Command: CustomStringConvertible, Sendable {
         case a, b, c

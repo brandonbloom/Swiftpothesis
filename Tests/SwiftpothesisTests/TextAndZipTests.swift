@@ -11,7 +11,8 @@ struct TextAndZipTests {
         }
     }
 
-    @Test func smallAlphabetsFindCollisions() async {
+    @Test(.propertyOverrides { $0.derandomize = true })
+    func smallAlphabetsFindCollisions() async {
         // A case-insensitive file name collides for "a" and "A".
         let issues = await failures {
             await forAll(

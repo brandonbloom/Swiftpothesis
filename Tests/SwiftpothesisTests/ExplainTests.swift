@@ -22,6 +22,17 @@ struct ExplainTests {
         #expect(issues.last?.contains("Explanation") == false)
     }
 
+    @Test func doesntExplainInsideASingleArgument() async {
+        // One argument whose elements are zips, such as a list of records.
+        let stories = [String].arbitrary(
+            zip(String.arbitrary(count: 0...2), Int.arbitrary(in: 0...9)).map { "\($0)\($1)" },
+            count: 0...5)
+        let issues = await failures {
+            await forAll(stories) { list in #expect(list.count < 3) }
+        }
+        #expect(issues.last?.contains("Explanation") == false)
+    }
+
     @Test func explainsOnlyMultipleArguments() async {
         let issues = await failures {
             await forAll(Int.arbitrary(in: 0...100)) { x in #expect(x < 10) }

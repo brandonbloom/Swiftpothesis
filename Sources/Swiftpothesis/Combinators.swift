@@ -158,6 +158,202 @@ where B.Value == A.Value, C.Value == A.Value, D.Value == A.Value, E.Value == A.V
     ])
 }
 
+// Fixed arities of `zip`, whose values are ordinary tuples. A parameter pack's tuple can't be
+// destructured in a closure (`let (w, h) = size` fails), and with two arguments the standard
+// library's `zip(_:_:)` outranks the variadic overload, so the common arities are spelled out.
+// The variadic `zip` covers more arguments.
+
+/// Combines generators into one that produces tuples of their values.
+public func zip<A: Generator, B: Generator>(_ a: A, _ b: B) -> Generators.Zip2<A, B> {
+    Generators.Zip2(a: a, b: b)
+}
+
+extension Generators {
+    /// A generator of tuples of 2 generators' values. See ``zip(_:_:)``.
+    public struct Zip2<A: Generator, B: Generator>: Generator {
+        let a: A
+
+        let b: B
+
+        public func generate(from source: inout Source) throws(Rejection) -> (A.Value, B.Value) {
+            // Each element is a span, so the explain phase can vary one at a time.
+            (
+                try source.span { (source) throws(Rejection) in try a.generate(from: &source) },
+                try source.span { (source) throws(Rejection) in try b.generate(from: &source) }
+            )
+        }
+
+        /// Transforms each tuple of generated values, passing its elements as separate
+        /// arguments.
+        public func map<T>(
+            _ transform: @escaping @Sendable (A.Value, B.Value) -> T
+        ) -> Generators.Map<Self, T> {
+            Generators.Map(base: self) { values in transform(values.0, values.1) }
+        }
+
+        /// Chooses the next generator from each tuple of generated values, passed as separate
+        /// arguments.
+        public func flatMap<Next: Generator>(
+            _ transform: @escaping @Sendable (A.Value, B.Value) -> Next
+        ) -> Generators.FlatMap<Self, Next> {
+            Generators.FlatMap(base: self) { values in transform(values.0, values.1) }
+        }
+    }
+}
+
+/// Combines generators into one that produces tuples of their values.
+public func zip<A: Generator, B: Generator, C: Generator>(_ a: A, _ b: B, _ c: C)
+    -> Generators.Zip3<A, B, C>
+{
+    Generators.Zip3(a: a, b: b, c: c)
+}
+
+extension Generators {
+    /// A generator of tuples of 3 generators' values. See ``zip(_:_:)``.
+    public struct Zip3<A: Generator, B: Generator, C: Generator>: Generator {
+        let a: A
+
+        let b: B
+
+        let c: C
+
+        public func generate(from source: inout Source) throws(Rejection) -> (
+            A.Value, B.Value, C.Value
+        ) {
+            // Each element is a span, so the explain phase can vary one at a time.
+            (
+                try source.span { (source) throws(Rejection) in try a.generate(from: &source) },
+                try source.span { (source) throws(Rejection) in try b.generate(from: &source) },
+                try source.span { (source) throws(Rejection) in try c.generate(from: &source) }
+            )
+        }
+
+        /// Transforms each tuple of generated values, passing its elements as separate
+        /// arguments.
+        public func map<T>(
+            _ transform: @escaping @Sendable (A.Value, B.Value, C.Value) -> T
+        ) -> Generators.Map<Self, T> {
+            Generators.Map(base: self) { values in transform(values.0, values.1, values.2) }
+        }
+
+        /// Chooses the next generator from each tuple of generated values, passed as separate
+        /// arguments.
+        public func flatMap<Next: Generator>(
+            _ transform: @escaping @Sendable (A.Value, B.Value, C.Value) -> Next
+        ) -> Generators.FlatMap<Self, Next> {
+            Generators.FlatMap(base: self) { values in transform(values.0, values.1, values.2) }
+        }
+    }
+}
+
+/// Combines generators into one that produces tuples of their values.
+public func zip<A: Generator, B: Generator, C: Generator, D: Generator>(
+    _ a: A, _ b: B, _ c: C, _ d: D
+) -> Generators.Zip4<A, B, C, D> {
+    Generators.Zip4(a: a, b: b, c: c, d: d)
+}
+
+extension Generators {
+    /// A generator of tuples of 4 generators' values. See ``zip(_:_:)``.
+    public struct Zip4<A: Generator, B: Generator, C: Generator, D: Generator>: Generator {
+        let a: A
+
+        let b: B
+
+        let c: C
+
+        let d: D
+
+        public func generate(from source: inout Source) throws(Rejection) -> (
+            A.Value, B.Value, C.Value, D.Value
+        ) {
+            // Each element is a span, so the explain phase can vary one at a time.
+            (
+                try source.span { (source) throws(Rejection) in try a.generate(from: &source) },
+                try source.span { (source) throws(Rejection) in try b.generate(from: &source) },
+                try source.span { (source) throws(Rejection) in try c.generate(from: &source) },
+                try source.span { (source) throws(Rejection) in try d.generate(from: &source) }
+            )
+        }
+
+        /// Transforms each tuple of generated values, passing its elements as separate
+        /// arguments.
+        public func map<T>(
+            _ transform: @escaping @Sendable (A.Value, B.Value, C.Value, D.Value) -> T
+        ) -> Generators.Map<Self, T> {
+            Generators.Map(base: self) { values in transform(values.0, values.1, values.2, values.3)
+            }
+        }
+
+        /// Chooses the next generator from each tuple of generated values, passed as separate
+        /// arguments.
+        public func flatMap<Next: Generator>(
+            _ transform: @escaping @Sendable (A.Value, B.Value, C.Value, D.Value) -> Next
+        ) -> Generators.FlatMap<Self, Next> {
+            Generators.FlatMap(base: self) { values in
+                transform(values.0, values.1, values.2, values.3)
+            }
+        }
+    }
+}
+
+/// Combines generators into one that produces tuples of their values.
+public func zip<A: Generator, B: Generator, C: Generator, D: Generator, E: Generator>(
+    _ a: A, _ b: B, _ c: C, _ d: D, _ e: E
+) -> Generators.Zip5<A, B, C, D, E> {
+    Generators.Zip5(a: a, b: b, c: c, d: d, e: e)
+}
+
+extension Generators {
+    /// A generator of tuples of 5 generators' values. See ``zip(_:_:)``.
+    public struct Zip5<A: Generator, B: Generator, C: Generator, D: Generator, E: Generator>:
+        Generator
+    {
+        let a: A
+
+        let b: B
+
+        let c: C
+
+        let d: D
+
+        let e: E
+
+        public func generate(from source: inout Source) throws(Rejection) -> (
+            A.Value, B.Value, C.Value, D.Value, E.Value
+        ) {
+            // Each element is a span, so the explain phase can vary one at a time.
+            (
+                try source.span { (source) throws(Rejection) in try a.generate(from: &source) },
+                try source.span { (source) throws(Rejection) in try b.generate(from: &source) },
+                try source.span { (source) throws(Rejection) in try c.generate(from: &source) },
+                try source.span { (source) throws(Rejection) in try d.generate(from: &source) },
+                try source.span { (source) throws(Rejection) in try e.generate(from: &source) }
+            )
+        }
+
+        /// Transforms each tuple of generated values, passing its elements as separate
+        /// arguments.
+        public func map<T>(
+            _ transform: @escaping @Sendable (A.Value, B.Value, C.Value, D.Value, E.Value) -> T
+        ) -> Generators.Map<Self, T> {
+            Generators.Map(base: self) { values in
+                transform(values.0, values.1, values.2, values.3, values.4)
+            }
+        }
+
+        /// Chooses the next generator from each tuple of generated values, passed as separate
+        /// arguments.
+        public func flatMap<Next: Generator>(
+            _ transform: @escaping @Sendable (A.Value, B.Value, C.Value, D.Value, E.Value) -> Next
+        ) -> Generators.FlatMap<Self, Next> {
+            Generators.FlatMap(base: self) { values in
+                transform(values.0, values.1, values.2, values.3, values.4)
+            }
+        }
+    }
+}
+
 /// Combines generators into one that produces tuples of their values.
 ///
 /// ```swift
