@@ -20,10 +20,11 @@ struct DeadlineTests {
         #expect(issues.contains { $0.contains("Deadline exceeded") || $0.contains("Flaky") })
         let summary = issues.last ?? ""
         #expect(summary.contains("Counterexample:"))
-        // The smallest slow input sleeps somewhat less than the deadline, since scheduling adds a
-        // few milliseconds to every test case.
+        // Shrinking moves the slow input well below the largest, 500. How far depends on the
+        // machine: on a loaded CI runner, scheduling alone can push a 15 ms sleep past the
+        // deadline, so there's no reliable lower bound.
         let x = Int(summary.split(separator: "Counterexample: ").last?.prefix { $0.isNumber } ?? "")
-        #expect(x.map { (25...150).contains($0) } == true)
+        #expect(x.map { (0...150).contains($0) } == true)
     }
 
     @Test(.propertyOverrides { $0.deadline = .milliseconds(10) })
